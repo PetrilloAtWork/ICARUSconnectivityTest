@@ -3,6 +3,7 @@
 import sys
 import os
 import re
+import math
 
 try:
   import ROOT
@@ -12,17 +13,8 @@ except ImportError:
   hasROOT = False
 
 
-class MinMax:
-  
-  def __init__(self):
-    self.min = None
-    self.max = None
-  def add(self, value):
-    if self.min is None or value < self.min: self.min = value
-    if self.max is None or value > self.max: self.max = value
-  
-# class MinMax
-
+################################################################################
+### WaveformSourceInfo: data structure with waveform identification parameters
 
 class WaveformSourceInfo:
   
@@ -70,6 +62,9 @@ class WaveformSourceInfo:
   
 # class WaveformSourceInfo
 
+
+################################################################################
+### `WaveformSourceParser`: waveform parameter management and extraction
 
 class WaveformSourceParser:
   
@@ -204,6 +199,222 @@ class WaveformSourceParser:
 # class WaveformSourceParser
 
 
+################################################################################
+### Statistics
+
+class ExtremeAccumulatorBase:
+  def __init__(self, comparer = (lambda a, b: a < b)):
+    self.extreme = None
+    self.comparer = comparer
+  def add(self, value):
+    if (self.extreme is None) or self.comparer(value, self.extreme):
+      self.extreme = value
+      return True
+    else: return False
+  # add()
+  def __call__(self): return self.extreme
+# class ExtremeAccumulator
+
+class MinAccumulator(ExtremeAccumulatorBase):
+  def __init__(self):
+    ExtremeAccumulatorBase.__init__(self, comparer=(lambda a, b: a < b))
+# class MinAccumulator
+
+class MaxAccumulator(ExtremeAccumulatorBase):
+  def __init__(self):
+    ExtremeAccumulatorBase.__init__(self, comparer=(lambda a, b: a > b))
+# class MaxAccumulator
+
+class ExtremeAccumulator:
+  def __init__(self):
+    self.min = MinAccumulator()
+    self.max = MaxAccumulator()
+  def add(self, value):
+    self.min.add(value)
+    self.max.add(value)
+# class ExtremeAccumulator
+
+
+class ExtremeAccumulatorNbase:
+  
+  def __init__(self, N, comparer = (lambda a, b: a < b)):
+    self.N = N
+    self.selected = []
+    self.comparer = comparer
+  # __init__()
+  
+  def add(self, v):
+    if not self.selected:
+      self.selected.append(v)
+      return True
+    if not self.comparer(v, self.selected[-1]): return False
+    self.selected.append(v)
+    self.selected.sort(self.comparer)
+    self.selected = self.selected[:self.N]
+    return True
+  # add()
+  
+  def __call__(self): return self.selected
+  
+# ExtremeAccumulatorNbase()
+
+class MinAccumulatorN(ExtremeAccumulatorNbase):
+  def __init__(self, N):
+    ExtremeAccumulatorNbase.__init__(self, N, comparer=(lambda a, b: a < b))
+# class MinAccumulatorN
+
+class MaxAccumulatorN(ExtremeAccumulatorNbase):
+  def __init__(self, N):
+    ExtremeAccumulatorNbase.__init__(self, N, comparer=(lambda a, b: a > b))
+# class MaxAccumulatorN
+
+class ExtremeAccumulatorN:
+  def __init__(self, N):
+    self.min = MinAccumulatorN(N)
+    self.max = MaxAccumulatorN(N)
+  def add(self, v):
+    self.min.add(v)
+    self.max.add(v)
+# class ExtremeAccumulatorN
+
+
+class StatAccumulator:
+  
+  def __init__(self):
+    self.n   = 0
+    self.w   = 0.0
+    self.wx  = 0.0
+    self.wx2 = 0.0
+  # __init__()
+  
+  def add(self, v, w = 1.0):
+    self.n   += 1
+    self.w   += w
+    self.wx  += w * v
+    self.wx2 += w * v**2
+  # add()
+  
+  def merge(self, other):
+    self.n   += other.n
+    self.w   += other.w
+    self.wx  += other.wx
+    self.wx2 += other.wx2
+  # merge()
+  
+  def average(self):
+    return self.wx / self.w
+  def averageError(self):
+    return self.average() / math.sqrt(self.w)
+  def RMS(self):
+    return math.sqrt(max(self.wx2 / self.w - self.average()**2, 0.0))
+  def averageSquares(self):
+    return self.wx2 / self.w
+  
+# class StatAccumulator
+
+
+################################################################################
+### Waveform analysis
+
+def findMaximum(t, V):
+  """Simple peak finder, returns the position of the maximum value."""
+  
+  # let's start simple:
+  maxVal = MaxAccumulator()
+  maxPos = None
+  
+  for i, x in enumerate(V):
+    if maxVal.add(x): maxPos = i
+  
+  return maxPos
+# findMaximum()
+
+def findMinimum(t, V):
+  """Simple peak finder, returns the position of the minimum value."""
+  
+  minVal = MinAccumulator()
+  minPos = None
+  
+  for i, x in enumerate(V):
+    if minVal.add(x): minPos = i
+  
+  return minPos
+# findMinimum()
+
+def findExtremes(t, V):
+  """Simple peak finder, returns the position of the minimum and maximum values."""
+  
+  minVal = MinAccumulator()
+  minPos = None
+  maxVal = MaxAccumulator()
+  maxPos = None
+  
+  for i, x in enumerate(V):
+    if minVal.add(x): minPos = i
+    if maxVal.add(x): maxPos = i
+  
+  return (minPos, maxPos)
+# findExtremes()
+
+
+def extractBaseline(t, V, iPeak):
+  margin = int(0.1 * len(V)) # 10% of the full range
+  
+  iEnd = iPeak - margin
+  if iEnd < 10: raise RuntimeError("Peak (at #%d) too close to the start of the waveform, can't extract pedestal." % iPeak)
+  
+  stats = StatAccumulator()
+  for i in xrange(iEnd): stats.add(V[i])
+  
+  return {
+    'value': stats.average(), 'error': stats.averageError(), 'RMS': stats.RMS(),
+    }
+  
+# extractBaseline()
+
+
+def extractPeaks(t, V, baseline):
+  """A barely acceptable algorithm t find peaks w.r.t. waveform baseline.
+  
+  Quite shameful.
+  """
+  
+  iMin, iMax = findExtremes(t, V)
+  return {
+    'positive': { 'value': V[iMax] - baseline, 'valueError': 0.0, 'time': t[iMax], 'timeError': 0.0, },
+    'negative': { 'value': V[iMin] - baseline, 'valueError': 0.0, 'time': t[iMin], 'timeError': 0.0, },
+    }
+# extractPeaks()
+
+
+def extractStatistics(t, V):
+  stats = {}
+  
+  iMax = findMaximum(t, V)
+  stats['maximum'] = { 'value': V[iMax], 'time': t[iMax], 'pos': iMax, }
+  
+  iMin = findMinimum(t, V)
+  stats['minimum'] = { 'value': V[iMin], 'time': t[iMin], 'pos': iMin, }
+  
+  stats['baseline'] = extractBaseline(t, V, stats['maximum']['pos'])
+  
+  stats['peaks'] = extractPeaks(t, V, stats['baseline']['value'])
+  absPeak = stats['peaks']['positive' if abs(stats['peaks']['positive']['value']) > abs(stats['peaks']['negative']['value']) else 'negative']
+  
+  stats['peaks']['absolute'] = {
+    'value': abs(absPeak['value']),
+    'valueError': abs(absPeak['valueError']),
+    'time': absPeak['time'],
+    'timeError': absPeak['timeError'],
+    }
+  
+  return stats
+# extractStatistics()
+
+
+################################################################################
+### Waveform drawing
+
 def plotWaveformFromFile(filePath, sourceInfo = None):
   
   if not os.path.exists(filePath):
@@ -226,16 +437,17 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None):
   # we own them, and drawing them does not leave references behind that could
   # keep them around.
   #
+  # We know the voltage range we expect the waveforms in, which is roughly
+  # 2.0 +/- 0.8 V; so we draw within this range, unless it would cut the
+  # waveform. We also leave some room for the eye.
+  defYamplitude = 0.8
+  defYmargin = 0.1
+
   sourceInfo = sourceSpecs.sourceInfo
   
-  # we support only groups of four channels
-  nPadsX = 2;
-  nPadsY = 2;
-  assert sourceInfo.MaxChannels == nPadsX * nPadsY
+  baseColors = ( ROOT.kBlack, ROOT.kYellow + 1, ROOT.kCyan + 1, ROOT.kMagenta + 1, ROOT.kGreen + 1)
   
-  baseColors = ( ROOT.kBlack, ROOT.kYellow + 1, ROOT.kCyan, ROOT.kMagenta, ROOT.kGreen )
-  
-  channelRange = MinMax()
+  channelRange = ExtremeAccumulator()
   
   # prepare a canvas to draw in, and split it
   if canvasName is None:
@@ -247,7 +459,7 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None):
     canvas.Clear()
     canvas.SetName(canvasName)
   ROOT.SetOwnership(canvas, False)
-  canvas.Divide(nPadsX, nPadsY)
+  canvas.DivideSquare(sourceInfo.MaxChannels)
   canvas.cd()
   
   # on each pad, draw a different channel info
@@ -259,12 +471,16 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None):
     
     channelRange.add(channelSourceInfo.channel)
     
+    #
+    # pad graphic options preparation
+    #
     pad = canvas.cd(channelIndex)
     pad.SetFillColor(ROOT.kWhite)
+    pad.SetLeftMargin(0.08)
+    pad.SetRightMargin(0.03)
+    pad.SetBottomMargin(0.06)
     pad.SetGridx()
     pad.SetGridy()
-    
-    sourcePaths = sourceSpecs.allChannelSources(channelIndex)
     
     baseColor = baseColors[channelIndex % len(baseColors)]
     
@@ -272,31 +488,86 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None):
     mgraph.SetName(channelSourceInfo.formatString("MG_%(chimney)s_%(connection)s_POS%(position)d_CH%(channelIndex)d"))
     mgraph.SetTitle(channelSourceInfo.formatString("Chimney %(chimney)s connection %(connection)s channel %(channel)s"))
     
+    #
+    # drawing all waveforms and collecting statistics
+    #
+    baselineStats = StatAccumulator()
+    baselineRMSstats = StatAccumulator()
+    maxStats = StatAccumulator()
+    peakStats = StatAccumulator()
+    Vrange = ExtremeAccumulator()
+    
     iSource = 0
+    sourcePaths = sourceSpecs.allChannelSources(channelIndex)
     for sourcePath in sourcePaths:
       graph = plotWaveformFromFile(sourcePath, sourceInfo=channelSourceInfo)
       if not graph: continue
       ROOT.SetOwnership(graph, False)
       graph.SetLineColor(baseColor)
-      graph.Draw("AL")
+      
+      stats = extractStatistics(graph.GetX(), graph.GetY())
+      baselineStats.add(stats['baseline']['value'], w=stats['baseline']['error'])
+      baselineRMSstats.add(stats['baseline']['RMS'])
+      maxStats.add(stats['maximum']['value'])
+      peakStats.add(stats['peaks']['absolute']['value'])
+      Vrange.add(stats['maximum']['value'])
+      Vrange.add(stats['minimum']['value'])
+      
       mgraph.Add(graph, "L")
       iSource += 1
     # for
     if iSource == 0: 
       pad.SetFillColor(ROOT.kRed)
       continue # no graphs, bail out
+    
     ROOT.SetOwnership(mgraph, False)
     mgraph.Draw("A")
+    
+    #
+    # setting (multi)graph graphic options
+    #
     xAxis = mgraph.GetXaxis()
     xAxis.SetDecimals()
     xAxis.SetTitle("time  [s]")
+    # set the range to minimum of 1.6V
     yAxis = mgraph.GetYaxis()
     yAxis.SetDecimals()
     yAxis.SetTitle("signal  [V]")
+    # instead of hard-coding the expected baseline of ~2.0 we use the actual
+    # baseline average, rounded at 100 mV (one decimal digit)
+    drawBaseline = round(baselineStats.average(), 1)
+    Ymin = drawBaseline - defYamplitude
+    Ymax = drawBaseline + defYamplitude
+    if (Vrange.min() >= Ymin and Vrange.max() <= Ymax):
+      yAxis.SetRangeUser(Ymin - defYmargin, Ymax + defYmargin)
+    
+    #
+    # statistics box
+    #
+    statsText = [
+      "waveforms = %d" % iSource,
+      "baseline = %.3f V (RMS %.3f V)" % (baselineStats.average(), baselineRMSstats.average()),
+      "maximum = (%.3f #pm %.3f) V" % (maxStats.average(), maxStats.averageError()),
+      "peak = %.3f V (RMS %.3f V)" % (peakStats.average(), peakStats.RMS())
+      ]
+    # "none" is a hack: `TPaveText` deals with NDC and removes it from the options,
+    # then passes the options to `TPave`; if `TPave` finds an empty option string
+    # (as it does when the original option was just "NDC"), it sets a "br" default;
+    # but ROOT does not punish the presence of unsupported options.
+    statBox = ROOT.TPaveStats(0.60, 0.80 - 0.025*len(statsText), 0.98, 0.92, "NDC none")
+    statBox.SetOptStat(0); # do not print title (the other flags are ignored)
+    statBox.SetBorderSize(1)
+    statBox.SetName(mgraph.GetName() + "_stats")
+    for statText in statsText: statBox.AddText(statText)
+    statBox.SetFillColor(ROOT.kWhite)
+    statBox.SetTextFont(42) # regular (not bold) sans serif, scalable
+    statBox.Draw()
+    ROOT.SetOwnership(statBox, False)
+    
   # for channels
   canvas.cd(0)
   
-  canvas.SetTitle(sourceInfo.formatString("Waveforms from chimney %(chimney)s, connection %(connection)s") + ", channels %(min)d-%(max)d" % vars(channelRange))
+  canvas.SetTitle(sourceInfo.formatString("Waveforms from chimney %(chimney)s, connection %(connection)s") + ", channels %d-%d" % (channelRange.min(), channelRange.max()))
   canvas.Draw()
   
   return canvas
@@ -313,6 +584,8 @@ def plotAllPositionsAroundFile(path):
 # plotAllPositionAroundFile()
 
 
+################################################################################
+### Test main program (run with `--help` for explanations)
 """
 import ROOT
 from drawWaveforms import plotAllPositionAroundFile
