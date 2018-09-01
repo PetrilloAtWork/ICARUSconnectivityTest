@@ -1,0 +1,22 @@
+
+function connectivityTest_doSetup() {
+  
+  # detect where this script is
+  local ScriptDir="$(dirname "${BASH_SOURCE[0]}")"
+  if [[ "${ScriptDir#./}" != "ScriptDir" ]] || [[ "${ScriptDir#../}" != "$ScriptDir" ]]; then
+    ScriptDir="$(pwd)/${ScriptDir}"
+    ScriptDir="${ScriptDir%/.}"
+  fi
+  
+  # add this directory to the python module search path
+  export PYTHONPATH="${PYTHONPATH:+${PYTHONPATH}:}${ScriptDir}"
+  
+  export ICARUSCONNECTIVITYTESTDIR="$ScriptDir"
+  
+  # clear all tracks
+  unset connectivityTest_doSetup
+  
+} # connectivityTest_doSetup()
+
+connectivityTest_doSetup
+
