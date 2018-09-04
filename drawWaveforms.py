@@ -430,7 +430,7 @@ def plotWaveformFromFile(filePath, sourceInfo = None):
 # plotWaveformFromFile()
 
 
-def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None):
+def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, options = {}):
   #
   # The `ROOT.SetOwnership()` calls free the specified ROOT objects from python
   # garbage collection scythe. We need that because since we created them,
@@ -459,7 +459,14 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None):
     canvas.Clear()
     canvas.SetName(canvasName)
   ROOT.SetOwnership(canvas, False)
-  canvas.DivideSquare(sourceInfo.MaxChannels)
+  if options.get("grid", "square").lower() in [ "square", "default", ]:
+    canvas.DivideSquare(sourceInfo.MaxChannels)
+  elif options["grid"].lower() == "vertical":
+    canvas.Divide(1, sourceInfo.MaxChannels)
+  elif options["grid"].lower() == "horizontal":
+    canvas.Divide(sourceInfo.MaxChannels, 1)
+  else:
+    raise RuntimeError("Option 'grid' has unrecognised value '%s'" % options['grid'])
   canvas.cd()
   
   # on each pad, draw a different channel info
@@ -574,12 +581,12 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None):
 # plotAllPositionWaveforms()
 
 
-def plotAllPositionsAroundFile(path):
+def plotAllPositionsAroundFile(path, options = {}):
   
   sourceSpecs = WaveformSourceParser(path)
   print sourceSpecs.describe()
   
-  plotAllPositionWaveforms(sourceSpecs)
+  plotAllPositionWaveforms(sourceSpecs, options=options.get('draw', {}))
   
 # plotAllPositionAroundFile()
 
