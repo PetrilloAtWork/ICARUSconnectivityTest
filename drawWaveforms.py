@@ -438,9 +438,9 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None):
   # keep them around.
   #
   # We know the voltage range we expect the waveforms in, which is roughly
-  # 2.0 +/- 0.8 V; so we draw within this range, unless it would cut the
+  # 2.0 +/- 0.9 V; so we draw within this range, unless it would cut the
   # waveform. We also leave some room for the eye.
-  defYamplitude = 0.8
+  defYamplitude = 0.9
   defYmargin = 0.1
 
   sourceInfo = sourceSpecs.sourceInfo
@@ -529,7 +529,7 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None):
     xAxis = mgraph.GetXaxis()
     xAxis.SetDecimals()
     xAxis.SetTitle("time  [s]")
-    # set the range to minimum of 1.6V
+    # set the range to a minimum
     yAxis = mgraph.GetYaxis()
     yAxis.SetDecimals()
     yAxis.SetTitle("signal  [V]")
