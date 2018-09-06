@@ -98,7 +98,7 @@ if __name__ == "__main__":
   nPositions    = 8
   nChannels     = nPositions*4
 
-  hNames = { 'AbsPeak': 'absPeak', 'Baseline': 'baseline', 'RMS': 'rms' }
+  hNames = { 'AbsPeak': 'absPeak', 'Baseline': 'baseline', 'RMS': 'rms', 'PosPeak': 'peak', 'NegPeak': 'dip', 'Maximum': 'maximum', 'Minimum': 'minimum', 'AbsPeakRMS': 'absPeakErr', 'PosPeakRMS': 'peakErr', 'NegPeakRMS': 'dipErr' }
   hList  = BookHistograms( hNames, len(rows), nChimneysARow, nConnections, nChannels )
 
   for row in rows:
@@ -135,14 +135,14 @@ if __name__ == "__main__":
             tVars.minimum = stats[ch]['minimum']['average']
             tVars.minimumErr = stats[ch]['minimum']['error']
   
-            print 'chimney %s, connection %d, channel %d, peak %f' % ( tVars.chimney, tVars.connection, tVars.channel, tVars.peak )
+            # print 'chimney %s, connection %d, channel %d, peak %f' % ( tVars.chimney, tVars.connection, tVars.channel, tVars.peak )
             t.Fill()
             
             for hName in hList.keys():
               iXBin = rows.index( row )*nChimneysARow + iChimney
               iYBin = ( iConnection - 1 )*nChannels + ch
               value = eval('tVars.%s' % hNames[hName])
-              print iXBin, iYBin, value
+              # print iXBin, iYBin, value
               hList[hName].SetBinContent( iXBin, iYBin, value )
               if iXBin == 3:
                 YBinLabel = 'Cable %02d, Ch %02d' % ( iConnection, ch )
