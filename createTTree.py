@@ -68,6 +68,17 @@ def accessTTree():
   
 # accessTTree()
 
+def BookHistograms( hNames, nRows, nChimneysARow, nConnections, nChannels ):
+
+  h = {}
+  nXBins = nRows * nChimneysARow
+  nYBins = nConnections * nChannels
+  for hName in hNames.keys():
+    h[hName] = ROOT.TH2F( hName, hName, nXBins, 0, nXBins, nYBins, 0, nYBins )
+
+  return h
+# BookHistograms()
+
 if __name__ == "__main__":
   
   import argparse
@@ -80,12 +91,16 @@ if __name__ == "__main__":
 
   f = createOutROOTFile( args.outFile )
   t, tVars = accessTTree()
-  
+    
   rows = [ 'EE', 'EW', 'WE', 'WW' ]
   nChimneysARow = 20
   nConnections  = 18
   nPositions    = 8
-  
+  nChannels     = nPositions*4
+
+  hNames = { 'AbsPeak': 'absPeak', 'Baseline': 'baseline', 'RMS': 'rms' }
+  hList  = BookHistograms( hNames, len(rows), nChimneysARow, nConnections, nChannels )
+
   for row in rows:
     for iChimney in xrange( 1, nChimneysARow+1 ):
       for iConnection in xrange( 1, nConnections+1 ):
@@ -98,12 +113,12 @@ if __name__ == "__main__":
               infile = ifile
               break
         
-          print infile
+          # print infile
           if infile == 'blah': continue
           stats = drawWaveforms.statAllPositionAroundFile( infile )
   
           for ch in stats.keys():
-            tVars.chimney = row
+            tVars.chimney = '%s%02d' % ( row, iChimney )
             tVars.connection = iConnection
             tVars.channel = ch
             tVars.nWaveforms = stats[ch]['nWaveforms']
@@ -122,6 +137,22 @@ if __name__ == "__main__":
   
             print 'chimney %s, connection %d, channel %d, peak %f' % ( tVars.chimney, tVars.connection, tVars.channel, tVars.peak )
             t.Fill()
+            
+            for hName in hList.keys():
+              iXBin = rows.index( row )*nChimneysARow + iChimney
+              iYBin = ( iConnection - 1 )*nChannels + ch
+              value = eval('tVars.%s' % hNames[hName])
+              print iXBin, iYBin, value
+              hList[hName].SetBinContent( iXBin, iYBin, value )
+              if iXBin == 3:
+                YBinLabel = 'Cable %02d, Ch %02d' % ( iConnection, ch )
+                hList[hName].GetYaxis().SetBinLabel( iYBin, YBinLabel )
+              if iYBin == 1:
+                XBinLabel = '%s%02d' % ( row, iChimney )
+                hList[hName].GetXaxis().SetBinLabel( iXBin, XBinLabel )
+    
+    for hName in hList.keys():
+      hList[hName].Write()
     
   t.Write()
   f.Write()
