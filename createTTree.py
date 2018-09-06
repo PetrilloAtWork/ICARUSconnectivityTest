@@ -17,6 +17,8 @@ ROOT.gROOT.ProcessLine(
   Float_t peakErr;\
   Float_t dip;\
   Float_t dipErr;\
+  Float_t absPeak;\
+  Float_t absPeakErr;\
   Float_t baseline;\
   Float_t rms;\
   Float_t maximum;\
@@ -53,6 +55,8 @@ def accessTTree():
   tree.Branch( 'PeakErr', ROOT.AddressOf( treeVars, 'peakErr' ), 'PeakErr/F' )
   tree.Branch( 'Dip', ROOT.AddressOf( treeVars, 'dip' ), 'Dip/F' )
   tree.Branch( 'DipErr', ROOT.AddressOf( treeVars, 'dipErr' ), 'DipErr/F' )
+  tree.Branch( 'AbsPeak', ROOT.AddressOf( treeVars, 'absPeak' ), 'AbsPeak/F' )
+  tree.Branch( 'AbsPeakErr', ROOT.AddressOf( treeVars, 'absPeakErr' ), 'AbsPeakErr/F' )
   tree.Branch( 'Baseline', ROOT.AddressOf( treeVars, 'baseline' ), 'Baseline/F' )
   tree.Branch( 'RMS', ROOT.AddressOf( treeVars, 'rms' ), 'RMS/F' )
   tree.Branch( 'Maximum', ROOT.AddressOf( treeVars, 'maximum' ), 'Maximum/F' )
@@ -77,39 +81,47 @@ if __name__ == "__main__":
   f = createOutROOTFile( args.outFile )
   t, tVars = accessTTree()
   
-  # for test
-  for iconnection in xrange( 1, 19 ):
-    for iposition in xrange ( 1, 9 ):
-      # print  glob.glob('%s/CHIMNEY_EW8/waveform_CH1_CHIMNEY_EW08_CONN_?%2d_POS_%d_*.csv' % ( args.inFileDir, iconnection, iposition ))
-      filelist = glob.glob('%s/CHIMNEY_EW8/waveform_CH1_CHIMNEY_EW08_CONN_?%02d_POS_%d_*.csv' % ( args.inFileDir, iconnection, iposition ))
-      infile = 'blah'
-      for ifile in filelist:
-        if ifile:
-          infile = ifile
-          break
+  rows = [ 'EE', 'EW', 'WE', 'WW' ]
+  nChimneysARow = 20
+  nConnections  = 18
+  nPositions    = 8
+  
+  for row in rows:
+    for iChimney in xrange( 1, nChimneysARow+1 ):
+      for iConnection in xrange( 1, nConnections+1 ):
+        for iPosition in xrange ( 1, nPositions+1 ):
+          
+          filelist = glob.glob('%s/CHIMNEY_%s%d/waveform_CH1_CHIMNEY_%s%02d_CONN_?%02d_POS_%d_*.csv' % ( args.inFileDir, row, iChimney, row, iChimney, iConnection, iPosition ))
+          infile = 'blah'
+          for ifile in filelist:
+            if ifile:
+              infile = ifile
+              break
         
-      print infile
-      if infile == 'blah': continue
-      stats = drawWaveforms.statAllPositionAroundFile( infile )
+          print infile
+          if infile == 'blah': continue
+          stats = drawWaveforms.statAllPositionAroundFile( infile )
   
-      for ch in stats.keys():
-        tVars.chimney = 'EW08'
-        tVars.connection = iconnection
-        tVars.channel = ch
-        tVars.nWaveforms = stats[ch]['nWaveforms']
-        tVars.peak = stats[ch]['peak']['average']
-        tVars.peakErr = stats[ch]['peak']['RMS']
-        tVars.dip = stats[ch]['dip']['average']
-        tVars.dipErr = stats[ch]['dip']['RMS']
-        tVars.baseline = stats[ch]['baseline']['average']
-        tVars.rms = stats[ch]['baseline']['RMS']
-        tVars.maximum = stats[ch]['maximum']['average']
-        tVars.maximumErr = stats[ch]['maximum']['error']
-        tVars.minimum = stats[ch]['minimum']['average']
-        tVars.minimumErr = stats[ch]['minimum']['error']
+          for ch in stats.keys():
+            tVars.chimney = row
+            tVars.connection = iConnection
+            tVars.channel = ch
+            tVars.nWaveforms = stats[ch]['nWaveforms']
+            tVars.peak = stats[ch]['peak']['average']
+            tVars.peakErr = stats[ch]['peak']['RMS']
+            tVars.dip = stats[ch]['dip']['average']
+            tVars.dipErr = stats[ch]['dip']['RMS']
+            tVars.absPeak = stats[ch]['absPeak']['average']
+            tVars.absPeakErr = stats[ch]['absPeak']['RMS']
+            tVars.baseline = stats[ch]['baseline']['average']
+            tVars.rms = stats[ch]['baseline']['RMS']
+            tVars.maximum = stats[ch]['maximum']['average']
+            tVars.maximumErr = stats[ch]['maximum']['error']
+            tVars.minimum = stats[ch]['minimum']['average']
+            tVars.minimumErr = stats[ch]['minimum']['error']
   
-        print 'chimney %s, connection %d, channel %d, peak %f' % ( tVars.chimney, tVars.connection, tVars.channel, tVars.peak )
-        t.Fill()
+            print 'chimney %s, connection %d, channel %d, peak %f' % ( tVars.chimney, tVars.connection, tVars.channel, tVars.peak )
+            t.Fill()
     
   t.Write()
   f.Write()
