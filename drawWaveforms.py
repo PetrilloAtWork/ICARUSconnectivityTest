@@ -382,7 +382,7 @@ def extractBaseline(t, V, iPeak, iDip):
   iEnd = iDip - margin
   dV = V[iPeak] - V[iDip]
   if ( dV < 0.1 ): iEnd = len(V)
-  elif iEnd < 10: raise RuntimeError('This difference between maximum and minimum is %f while minimum is at time %f and maximum is at %f' %( dV, t[iDip], t[iPeak] ) )
+  elif iEnd < 10: raise RuntimeError('This difference between maximum and minimum is %f while minimum is at time %f (tick %d) and maximum is at %f (tick %d)' %( dV, t[iDip], iDip, t[iPeak], iPeak ) )
   
   stats = StatAccumulator()
   for i in xrange(iEnd): stats.add(V[i])
