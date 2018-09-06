@@ -614,22 +614,25 @@ def plotAllPositionsAroundFile(path, options = {}):
 def statAllPositionWaveforms(sourceSpecs):
 
   sourceInfo = sourceSpecs.sourceInfo
+  final = {}
 
   for channelIndex in xrange(1, sourceInfo.MaxChannels + 1):
     
     # each channel will hve a multigraph with one graph for each waveform
     channelSourceInfo = sourceInfo.copy()
     channelSourceInfo.setChannelIndex(channelIndex)
+    channel = channelSourceInfo.channel
     
-    channelRange.add(channelSourceInfo.channel)
-
     #
     # drawing all waveforms and collecting statistics
     #
     baselineStats = StatAccumulator()
     baselineRMSstats = StatAccumulator()
     maxStats = StatAccumulator()
+    minStats = StatAccumulator()
     peakStats = StatAccumulator()
+    dipStats = StatAccumulator()
+    absPeakStats = StatAccumulator()
     Vrange = ExtremeAccumulator()
     
     iSource = 0
@@ -641,18 +644,33 @@ def statAllPositionWaveforms(sourceSpecs):
       baselineStats.add(stats['baseline']['value'], w=stats['baseline']['error'])
       baselineRMSstats.add(stats['baseline']['RMS'])
       maxStats.add(stats['maximum']['value'])
-      peakStats.add(stats['peaks']['absolute']['value'])
+      minStats.add(stats['minimum']['value'])
+      peakStats.add(stats['peaks']['positive']['value'])
+      dipStats.add(stats['peaks']['negative']['value'])
+      absPeakStats.add(stats['peaks']['absolute']['value'])
       Vrange.add(stats['maximum']['value'])
       Vrange.add(stats['minimum']['value'])
       iSource += 1
     # for
     if iSource == 0: 
       continue # no graphs, bail out
-    print "waveforms = %d" % iSource
-    print "baseline = %.3f V (RMS %.3f V)" % (baselineStats.average(), baselineRMSstats.average())
-    print "maximum = (%.3f #pm %.3f) V" % (maxStats.average(), maxStats.averageError())
-    print "peak = %.3f V (RMS %.3f V)" % (peakStats.average(), peakStats.RMS())
+    
+    finalStats = {}
+    finalStats['nWaveforms'] = iSource
+    finalStats['baseline'] = { 'average': baselineStats.average(), 'RMS': baselineRMSstats.average() }
+    finalStats['maximum'] = { 'average': maxStats.average(), 'error': maxStats.averageError() }
+    finalStats['minimum'] = { 'average': minStats.average(), 'error': minStats.averageError() }
+    finalStats['peak'] = { 'average': peakStats.average(), 'RMS': peakStats.RMS() }
+    finalStats['dip'] = { 'average': dipStats.average(), 'RMS': dipStats.RMS() }
+    finalStats['absPeak'] = { 'average': absPeakStats.average(), 'RMS': absPeakStats.RMS() }
+    # print "channel = %d" % channel
+    # print "waveforms = %d" % finalStats['nWaveforms']
+    # print "baseline = %.3f V (RMS %.3f V)" % ( finalStats['baseline']['average'], finalStats['baseline']['RMS'] )
+    # print "maximum = (%.3f #pm %.3f) V" % ( finalStats['maximum']['average'], finalStats['maximum']['error'] )
+    # print "peak = %.3f V (RMS %.3f V)" % ( finalStats['absPeak']['average'], finalStats['absPeak']['RMS'] )
+    final[channel] = finalStats
 
+  return final
 
 # statAllPositionWaveforms()
 
@@ -662,7 +680,9 @@ def statAllPositionAroundFile(path, options = {}):
   sourceSpecs = WaveformSourceParser(path)
   print sourceSpecs.describe()
   
-  statAllPositionWaveforms(sourceSpecs)
+  stats = statAllPositionWaveforms(sourceSpecs)
+  
+  return stats
 
 # statAllPositionAroundFile()
 
