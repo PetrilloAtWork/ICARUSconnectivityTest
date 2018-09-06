@@ -2,6 +2,7 @@
 
 import sys
 import os
+import glob
 import ROOT
 import drawWaveforms
 
@@ -27,7 +28,9 @@ ROOT.gROOT.ProcessLine(
 
 
 def createOutROOTFile( outFile ):
-  f = ROOT.TFile( outFile, "UPDATE" )
+  # f = ROOT.TFile( outFile, "UPDATE" )
+  f = ROOT.TFile( outFile, "RECREATE" )
+
 
   if not f:
     print >> sys.stderr, "Cannot open %s" % outFile
@@ -75,27 +78,38 @@ if __name__ == "__main__":
   t, tVars = accessTTree()
   
   # for test
-  infile = '%s/CHIMNEY_EW8/waveform_CH2_CHIMNEY_EW08_CONN_V18_POS_8_80.csv' % args.inFileDir
-  stats = drawWaveforms.statAllPositionAroundFile( infile )
+  for iconnection in xrange( 1, 19 ):
+    for iposition in xrange ( 1, 9 ):
+      # print  glob.glob('%s/CHIMNEY_EW8/waveform_CH1_CHIMNEY_EW08_CONN_?%2d_POS_%d_*.csv' % ( args.inFileDir, iconnection, iposition ))
+      filelist = glob.glob('%s/CHIMNEY_EW8/waveform_CH1_CHIMNEY_EW08_CONN_?%02d_POS_%d_*.csv' % ( args.inFileDir, iconnection, iposition ))
+      infile = 'blah'
+      for ifile in filelist:
+        if ifile:
+          infile = ifile
+          break
+        
+      print infile
+      if infile == 'blah': continue
+      stats = drawWaveforms.statAllPositionAroundFile( infile )
   
-  for ch in stats.keys():
-    tVars.chimney = 'EW08'
-    tVars.connection = 18
-    tVars.channel = ch
-    tVars.nWaveforms = stats[ch]['nWaveforms']
-    tVars.peak = stats[ch]['peak']['average']
-    tVars.peakErr = stats[ch]['peak']['RMS']
-    tVars.dip = stats[ch]['dip']['average']
-    tVars.dipErr = stats[ch]['dip']['RMS']
-    tVars.baseline = stats[ch]['baseline']['average']
-    tVars.rms = stats[ch]['baseline']['RMS']
-    tVars.maximum = stats[ch]['maximum']['average']
-    tVars.maximumErr = stats[ch]['maximum']['error']
-    tVars.minimum = stats[ch]['minimum']['average']
-    tVars.minimumErr = stats[ch]['minimum']['error']
+      for ch in stats.keys():
+        tVars.chimney = 'EW08'
+        tVars.connection = iconnection
+        tVars.channel = ch
+        tVars.nWaveforms = stats[ch]['nWaveforms']
+        tVars.peak = stats[ch]['peak']['average']
+        tVars.peakErr = stats[ch]['peak']['RMS']
+        tVars.dip = stats[ch]['dip']['average']
+        tVars.dipErr = stats[ch]['dip']['RMS']
+        tVars.baseline = stats[ch]['baseline']['average']
+        tVars.rms = stats[ch]['baseline']['RMS']
+        tVars.maximum = stats[ch]['maximum']['average']
+        tVars.maximumErr = stats[ch]['maximum']['error']
+        tVars.minimum = stats[ch]['minimum']['average']
+        tVars.minimumErr = stats[ch]['minimum']['error']
   
-    print 'chimney %s, connection %d, peak %f' % ( tVars.chimney, tVars.connection, tVars.peak )
-    t.Fill()
+        print 'chimney %s, connection %d, channel %d, peak %f' % ( tVars.chimney, tVars.connection, tVars.channel, tVars.peak )
+        t.Fill()
     
   t.Write()
   f.Write()
