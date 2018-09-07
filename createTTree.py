@@ -91,7 +91,11 @@ if __name__ == "__main__":
 
   f = createOutROOTFile( args.outFile )
   t, tVars = accessTTree()
-    
+  
+  ChimneyBlacklist = [
+    'WW03', # spurious file names, needs cleaning
+  ]
+  
   rows = [ 'EE', 'EW', 'WE', 'WW' ]
   nChimneysARow = 20
   nConnections  = 18
@@ -103,10 +107,15 @@ if __name__ == "__main__":
 
   for row in rows:
     for iChimney in xrange( 1, nChimneysARow+1 ):
+      ChimneyName = '%s%02d' % (row, iChimney)
+      if ChimneyName in ChimneyBlacklist:
+        print 'Chimney "%s" is blacklisted: skipped!' % ChimneyName
+        continue
+      
       for iConnection in xrange( 1, nConnections+1 ):
         for iPosition in xrange ( 1, nPositions+1 ):
           
-          filelist = glob.glob('%s/CHIMNEY_%s%d/waveform_CH1_CHIMNEY_%s%02d_CONN_?%02d_POS_%d_*.csv' % ( args.inFileDir, row, iChimney, row, iChimney, iConnection, iPosition ))
+          filelist = glob.glob('%s/CHIMNEY_%s%02d/waveform_CH1_CHIMNEY_%s%02d_CONN_?%02d_POS_%d_*.csv' % ( args.inFileDir, row, iChimney, row, iChimney, iConnection, iPosition ))
           infile = 'blah'
           for ifile in filelist:
             if ifile:
