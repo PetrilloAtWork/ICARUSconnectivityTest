@@ -610,7 +610,7 @@ if __name__ == "__main__":
   
   args = parser.parse_args()
   
-  plotAllPositionAroundFile(args.fileName)
+  plotAllPositionsAroundFile(args.fileName)
   
   if ROOT.gPad: ROOT.gPad.SaveAs(ROOT.gPad.GetName() + ".pdf")
   
