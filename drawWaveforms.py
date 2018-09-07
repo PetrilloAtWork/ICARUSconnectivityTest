@@ -357,14 +357,37 @@ def findExtremes(t, V):
 # findExtremes()
 
 
-def extractBaseline(t, V, iPeak):
+def extractBaselineFromPedestal(t, V, iPeak):
   margin = int(0.1 * len(V)) # 10% of the full range
   
   iEnd = iPeak - margin
-  if iEnd < 10: raise RuntimeError("Peak (at #%d) too close to the start of the waveform, can't extract pedestal." % iPeak)
+  if iEnd < 10:
+    # we should bail out here; as a workaround, instead, we get the baseline anyway
+    # raise RuntimeError("Peak (at #%d) too close to the start of the waveform, can't extract pedestal." % iPeak)
+    iEnd = margin
   
   stats = StatAccumulator()
   for i in xrange(iEnd): stats.add(V[i])
+  
+  return {
+    'value': stats.average(), 'error': stats.averageError(), 'RMS': stats.RMS(),
+    }
+  
+# extractBaselineFromPedestal()
+
+
+def extractBaseline(t, V):
+  """Baseline extractor algorithm.
+  
+  A distribution is generated for all sampled signal values.
+  The central 50% of the distribution is taken, and the average and RMS of the
+  elements in that range make up the baseline and noise.
+  """
+  
+  margin = int(0.25 * len(V)) # on each side
+  
+  stats = StatAccumulator()
+  for x in sorted(V)[margin:-margin]: stats.add(x)
   
   return {
     'value': stats.average(), 'error': stats.averageError(), 'RMS': stats.RMS(),
@@ -396,7 +419,7 @@ def extractStatistics(t, V):
   iMin = findMinimum(t, V)
   stats['minimum'] = { 'value': V[iMin], 'time': t[iMin], 'pos': iMin, }
   
-  stats['baseline'] = extractBaseline(t, V, stats['maximum']['pos'])
+  stats['baseline'] = extractBaseline(t, V)
   
   stats['peaks'] = extractPeaks(t, V, stats['baseline']['value'])
   absPeak = stats['peaks']['positive' if abs(stats['peaks']['positive']['value']) > abs(stats['peaks']['negative']['value']) else 'negative']
