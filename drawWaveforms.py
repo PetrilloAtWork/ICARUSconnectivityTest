@@ -378,18 +378,30 @@ def findExtremes(t, V):
 
 
 def extractBaseline(t, V, iPeak, iDip):
+  result = { 'status': 'good', }
   margin = int( (iPeak-iDip)/2 )
   iEnd = iDip - margin
   dV = V[iPeak] - V[iDip]
   if ( dV < 0.15 ): iEnd = len(V)
-  elif iEnd < 10: raise RuntimeError('This difference between maximum and minimum is %f while minimum is at time %f (tick %d) and maximum is at %f (tick %d)' %( dV, t[iDip], iDip, t[iPeak], iPeak ) )
+  elif iEnd < 10:
+    result['status'] = 'peakTooLow'
+    print >> sys.stderr, 'This difference between maximum and minimum is %f while minimum is at time %f (tick %d) and maximum is at %f (tick %d)' %( dV, t[iDip], iDip, t[iPeak], iPeak )
+    iEnd = len(V)
+  elif margin < 0:
+    result['status'] = 'swappedPeaks'
+    print >> sys.stderr, 'This difference between maximum and minimum is %f while minimum is at time %f (tick %d) and maximum is at %f (tick %d)' %( dV, t[iDip], iDip, t[iPeak], iPeak )
+    iEnd = len(V)
+
   
   stats = StatAccumulator()
-  for i in xrange(iEnd): stats.add(V[i])
+  for i in xrange(iEnd):
+    stats.add(V[i])
+    # print i, iEnd
   
-  return {
+  result.update({
     'value': stats.average(), 'error': stats.averageError(), 'RMS': stats.RMS(),
-    }
+    })
+  return result
   
 # extractBaseline()
 
@@ -641,6 +653,10 @@ def statAllPositionWaveforms(sourceSpecs):
       wf = readWaveform(sourcePath)
       if not wf: continue
       stats = extractStatistics(wf[0], wf[1])
+      if stats['baseline']['status'] == 'peakTooLow':
+        print >> sys.stderr, 'Chimney %s, connection %s, channel %02d has too low peak!' % ( channelSourceInfo.chimney, channelSourceInfo.connection, channel )
+      elif stats['baseline']['status'] == 'swappedPeaks':
+        print >> sys.stderr, 'Chimney %s, connection %s, channel %02d has swapped peak!' % ( channelSourceInfo.chimney, channelSourceInfo.connection, channel )
       baselineStats.add(stats['baseline']['value'], w=stats['baseline']['error'])
       baselineRMSstats.add(stats['baseline']['RMS'])
       maxStats.add(stats['maximum']['value'])
