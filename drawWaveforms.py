@@ -672,10 +672,10 @@ def statAllPositionWaveforms(sourceSpecs):
       wf = readWaveform(sourcePath)
       if not wf: continue
       stats = extractStatistics(wf[0], wf[1])
-      if stats['baseline']['status'] == 'peakTooLow':
-        print >> sys.stderr, 'Chimney %s, connection %s, channel %02d has too low peak!' % ( channelSourceInfo.chimney, channelSourceInfo.connection, channel )
-      elif stats['baseline']['status'] == 'swappedPeaks':
-        print >> sys.stderr, 'Chimney %s, connection %s, channel %02d has swapped peak!' % ( channelSourceInfo.chimney, channelSourceInfo.connection, channel )
+      # if stats['baseline']['status'] == 'peakTooLow':
+      #   print >> sys.stderr, 'Chimney %s, connection %s, channel %02d has too low peak!' % ( channelSourceInfo.chimney, channelSourceInfo.connection, channel )
+      # elif stats['baseline']['status'] == 'swappedPeaks':
+      #   print >> sys.stderr, 'Chimney %s, connection %s, channel %02d has swapped peak!' % ( channelSourceInfo.chimney, channelSourceInfo.connection, channel )
       baselineStats.add(stats['baseline']['value'], w=stats['baseline']['error'])
       baselineRMSstats.add(stats['baseline']['RMS'])
       maxStats.add(stats['maximum']['value'])
