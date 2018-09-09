@@ -68,16 +68,7 @@ def accessTTree():
   
 # accessTTree()
 
-def BookHistograms( hNames, nRows, nChimneysARow, nConnections, nChannels ):
 
-  h = {}
-  nXBins = nRows * nChimneysARow
-  nYBins = nConnections * nChannels
-  for hName in hNames.keys():
-    h[hName] = ROOT.TH2F( hName, hName, nXBins, 0, nXBins, nYBins, 0, nYBins )
-
-  return h
-# BookHistograms()
 
 if __name__ == "__main__":
   
@@ -86,6 +77,7 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser( description='Create a ROOT file containing a TTree with the statistics information.' )
   parser.add_argument( '-i', '--inputdir', dest = 'inFileDir', type = str, help = 'the directory of input files.' )
   parser.add_argument( '-o', '--outputfile', dest = 'outFile', type = str, help = 'the output file name.' )
+  parser.add_argument( '-r', '--row', dest = 'row', type = str, help = 'the row of chimneys: EE, EW, WE, WW.' )
   
   args = parser.parse_args()
 
@@ -93,75 +85,63 @@ if __name__ == "__main__":
   t, tVars = accessTTree()
   
   ChimneyBlacklist = [
+    'EE02',
+    'EW02',
+    'EW11',
+    'EW11'
     'WW03', # spurious file names, needs cleaning
   ]
   
-  rows = [ 'EE', 'EW', 'WE', 'WW' ]
+  row = args.row
   nChimneysARow = 20
   nConnections  = 18
   nPositions    = 8
   nChannels     = nPositions*4
 
-  hNames = { 'AbsPeak': 'absPeak', 'Baseline': 'baseline', 'RMS': 'rms', 'PosPeak': 'peak', 'NegPeak': 'dip', 'Maximum': 'maximum', 'Minimum': 'minimum', 'AbsPeakRMS': 'absPeakErr', 'PosPeakRMS': 'peakErr', 'NegPeakRMS': 'dipErr' }
-  hList  = BookHistograms( hNames, len(rows), nChimneysARow, nConnections, nChannels )
 
-  for row in rows:
-    for iChimney in xrange( 1, nChimneysARow+1 ):
-      ChimneyName = '%s%02d' % (row, iChimney)
-      if ChimneyName in ChimneyBlacklist:
-        print 'Chimney "%s" is blacklisted: skipped!' % ChimneyName
-        continue
+
+  for iChimney in xrange( 1, nChimneysARow+1 ):
+    ChimneyName = '%s%02d' % (row, iChimney)
+    if ChimneyName in ChimneyBlacklist:
+      print 'Chimney "%s" is blacklisted: skipped!' % ChimneyName
+      continue
       
-      for iConnection in xrange( 1, nConnections+1 ):
-        for iPosition in xrange ( 1, nPositions+1 ):
-          
-          filelist = glob.glob('%s/CHIMNEY_%s%02d/waveform_CH1_CHIMNEY_%s%02d_CONN_?%02d_POS_%d_*.csv' % ( args.inFileDir, row, iChimney, row, iChimney, iConnection, iPosition ))
-          infile = 'blah'
-          for ifile in filelist:
-            if ifile:
-              infile = ifile
-              break
+    for iConnection in xrange( 1, nConnections+1 ):
+      for iPosition in xrange ( 1, nPositions+1 ):
         
-          # print infile
-          if infile == 'blah': continue
-          stats = drawWaveforms.statAllPositionAroundFile( infile )
+        filelist = glob.glob('%s/CHIMNEY_%s%02d/waveform_CH1_CHIMNEY_%s%02d_CONN_?%02d_POS_%d_*.csv' % ( args.inFileDir, row, iChimney, row, iChimney, iConnection, iPosition ))
+        infile = 'blah'
+        for ifile in filelist:
+          if ifile:
+            infile = ifile
+            break
+        
+        # print infile
+        if infile == 'blah': continue
+        stats = drawWaveforms.statAllPositionAroundFile( infile )
   
-          for ch in stats.keys():
-            tVars.chimney = '%s%02d' % ( row, iChimney )
-            tVars.connection = iConnection
-            tVars.channel = ch
-            tVars.nWaveforms = stats[ch]['nWaveforms']
-            tVars.peak = stats[ch]['peak']['average']
-            tVars.peakErr = stats[ch]['peak']['RMS']
-            tVars.dip = stats[ch]['dip']['average']
-            tVars.dipErr = stats[ch]['dip']['RMS']
-            tVars.absPeak = stats[ch]['absPeak']['average']
-            tVars.absPeakErr = stats[ch]['absPeak']['RMS']
-            tVars.baseline = stats[ch]['baseline']['average']
-            tVars.rms = stats[ch]['baseline']['RMS']
-            tVars.maximum = stats[ch]['maximum']['average']
-            tVars.maximumErr = stats[ch]['maximum']['error']
-            tVars.minimum = stats[ch]['minimum']['average']
-            tVars.minimumErr = stats[ch]['minimum']['error']
-  
-            # print 'chimney %s, connection %d, channel %d, peak %f' % ( tVars.chimney, tVars.connection, tVars.channel, tVars.peak )
-            t.Fill()
+        for ch in stats.keys():
+          tVars.chimney = '%s%02d' % ( row, iChimney )
+          tVars.connection = iConnection
+          tVars.channel = ch
+          tVars.nWaveforms = stats[ch]['nWaveforms']
+          tVars.peak = stats[ch]['peak']['average']
+          tVars.peakErr = stats[ch]['peak']['RMS']
+          tVars.dip = stats[ch]['dip']['average']
+          tVars.dipErr = stats[ch]['dip']['RMS']
+          tVars.absPeak = stats[ch]['absPeak']['average']
+          tVars.absPeakErr = stats[ch]['absPeak']['RMS']
+          tVars.baseline = stats[ch]['baseline']['average']
+          tVars.rms = stats[ch]['baseline']['RMS']
+          tVars.maximum = stats[ch]['maximum']['average']
+          tVars.maximumErr = stats[ch]['maximum']['error']
+          tVars.minimum = stats[ch]['minimum']['average']
+          tVars.minimumErr = stats[ch]['minimum']['error']
+          
+          # print 'chimney %s, connection %d, channel %d, peak %f' % ( tVars.chimney, tVars.connection, tVars.channel, tVars.peak )
+          t.Fill()
             
-            for hName in hList.keys():
-              iXBin = rows.index( row )*nChimneysARow + iChimney
-              iYBin = ( iConnection - 1 )*nChannels + ch
-              value = eval('tVars.%s' % hNames[hName])
-              # print iXBin, iYBin, value
-              hList[hName].SetBinContent( iXBin, iYBin, value )
-              if iXBin == 3:
-                YBinLabel = 'Cable %02d, Ch %02d' % ( iConnection, ch )
-                hList[hName].GetYaxis().SetBinLabel( iYBin, YBinLabel )
-              if iYBin == 1:
-                XBinLabel = '%s%02d' % ( row, iChimney )
-                hList[hName].GetXaxis().SetBinLabel( iXBin, XBinLabel )
-    
-    for hName in hList.keys():
-      hList[hName].Write()
+
     
   t.Write()
   f.Write()
