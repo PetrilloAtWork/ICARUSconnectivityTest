@@ -633,12 +633,12 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
 # plotAllPositionWaveforms()
 
 
-def plotAllPositionsAroundFile(path, options = {}):
+def plotAllPositionsAroundFile(path, canvasName = None, canvas = None, options = {}):
   
   sourceSpecs = WaveformSourceParser(path)
   print sourceSpecs.describe()
   
-  plotAllPositionWaveforms(sourceSpecs, options=options.get('draw', {}))
+  return plotAllPositionWaveforms(sourceSpecs, canvasName=canvasName, canvas=canvas, options=options.get('draw', {}))
   
 # plotAllPositionAroundFile()
 
