@@ -377,7 +377,7 @@ def findExtremes(t, V):
 # findExtremes()
 
 
-def extractBaseline(t, V, iPeak, iDip):
+def extractBaselineFromPedestal(t, V, iPeak, iDip):
   result = { 'status': 'good', }
   margin = int( (iPeak-iDip)/2 )
   iEnd = iDip - margin
@@ -391,7 +391,6 @@ def extractBaseline(t, V, iPeak, iDip):
     result['status'] = 'swappedPeaks'
     print >> sys.stderr, 'This difference between maximum and minimum is %f while minimum is at time %f (tick %d) and maximum is at %f (tick %d)' %( dV, t[iDip], iDip, t[iPeak], iPeak )
     iEnd = len(V)
-
   
   stats = StatAccumulator()
   for i in xrange(iEnd):
@@ -402,6 +401,26 @@ def extractBaseline(t, V, iPeak, iDip):
     'value': stats.average(), 'error': stats.averageError(), 'RMS': stats.RMS(),
     })
   return result
+  
+# extractBaselineFromPedestal()
+
+
+def extractBaseline(t, V):
+  """Baseline extractor algorithm.
+  
+  A distribution is generated for all sampled signal values.
+  The central 50% of the distribution is taken, and the average and RMS of the
+  elements in that range make up the baseline and noise.
+  """
+  
+  margin = int(0.25 * len(V)) # on each side
+  
+  stats = StatAccumulator()
+  for x in sorted(V)[margin:-margin]: stats.add(x)
+  
+  return {
+    'value': stats.average(), 'error': stats.averageError(), 'RMS': stats.RMS(),
+    }
   
 # extractBaseline()
 
@@ -429,7 +448,7 @@ def extractStatistics(t, V):
   iMin = findMinimum(t, V)
   stats['minimum'] = { 'value': V[iMin], 'time': t[iMin], 'pos': iMin, }
   
-  stats['baseline'] = extractBaseline(t, V, stats['maximum']['pos'], stats['minimum']['pos'])
+  stats['baseline'] = extractBaseline(t, V)
   
   stats['peaks'] = extractPeaks(t, V, stats['baseline']['value'])
   absPeak = stats['peaks']['positive' if abs(stats['peaks']['positive']['value']) > abs(stats['peaks']['negative']['value']) else 'negative']
@@ -722,7 +741,7 @@ if __name__ == "__main__":
   
   args = parser.parse_args()
   
-  plotAllPositionAroundFile(args.fileName)
+  plotAllPositionsAroundFile(args.fileName)
   
   if ROOT.gPad: ROOT.gPad.SaveAs(ROOT.gPad.GetName() + ".pdf")
   

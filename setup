@@ -1,9 +1,10 @@
+#!/usr/bin/env bash
 
 function connectivityTest_doSetup() {
   
   # detect where this script is
   local ScriptDir="$(dirname "${BASH_SOURCE[0]}")"
-  if [[ "${ScriptDir#./}" != "ScriptDir" ]] || [[ "${ScriptDir#../}" != "$ScriptDir" ]]; then
+  if [[ "${ScriptDir#./}" != "$ScriptDir" ]] || [[ "${ScriptDir#../}" != "$ScriptDir" ]]; then
     ScriptDir="$(pwd)/${ScriptDir}"
     ScriptDir="${ScriptDir%/.}"
   fi
