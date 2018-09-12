@@ -4,6 +4,7 @@ import sys
 import os
 import glob
 import ROOT
+import AccessROOTUtils
 import drawWaveforms
 
 ## A C/C++ structure is required, to allow memory based access
@@ -29,18 +30,7 @@ ROOT.gROOT.ProcessLine(
 # gROOT.ProcessLine
 
 
-def createOutROOTFile( outFile ):
-  # f = ROOT.TFile( outFile, "UPDATE" )
-  f = ROOT.TFile( outFile, "RECREATE" )
 
-
-  if not f:
-    print >> sys.stderr, "Cannot open %s" % outFile
-    sys.exit( 1 )
-
-  return f
-
-# createOutROOTFile()
 
 def accessTTree():
 
@@ -81,14 +71,14 @@ if __name__ == "__main__":
   
   args = parser.parse_args()
 
-  f = createOutROOTFile( args.outFile )
+  f = AccessROOTUtils.createOutROOTFile( args.outFile )
   t, tVars = accessTTree()
   
   ChimneyBlacklist = [
     'EE02',
     'EW02',
     'EW11',
-    'EW11'
+    'EW11',
     'WW03', # spurious file names, needs cleaning
   ]
   
