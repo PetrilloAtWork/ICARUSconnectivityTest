@@ -75,7 +75,6 @@ if __name__ == "__main__":
   t, tVars = accessTTree()
   
   ChimneyBlacklist = [
-    'EW11',
     'WW03', # spurious file names, needs cleaning
   ]
   
