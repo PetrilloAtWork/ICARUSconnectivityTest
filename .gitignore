@@ -1,14 +1,1 @@
-# python compiled files
 *.pyc
-
-# latex temporary and auxiliary files
-*.aux
-*.bbl
-*.blg
-*.log
-*.out
-*.fdb_latexmk
-*.fls
-.DS_Store
-._.DS_Store
-
