@@ -554,6 +554,7 @@ def findMinimum(t, V):
   return minPos
 # findMinimum()
 
+
 def findExtremes(t, V):
   """Simple peak finder, returns the position of the minimum and maximum values."""
   
@@ -609,16 +610,48 @@ def extractBaseline(t, V):
 # extractBaseline()
 
 
-def extractPeaks(t, V, baseline):
-  """A barely acceptable algorithm to find peaks w.r.t. waveform baseline.
+def extractPeaks(t, V, baseline = 0.0, l = 1):
+  """Peak finder with running window average.
+
+  The peaks are found as extrema of the averages of `l` elements in a running window.
+  If specified, a baseline is subtracted to all samples.
+
+  V is required to have at least one element.
+  Samples are assumed to be periodic.
   
-  Quite shameful.
   """
-  
-  iMin, iMax = findExtremes(t, V)
+
+  assert(l >= 1)
+  assert(len(V) >= l)
+
+  minSum = MinAccumulator()
+  minPos = None
+  maxSum = MaxAccumulator()
+  maxPos = None
+
+  s = sum(V[0:l-1])
+  last = 0
+  for i, x in enumerate(V[l-1:]):
+    s += x - last
+    print i, s, x, last
+    if minSum.add(s): minPos = i
+    if maxSum.add(s): maxPos = i
+    last = V[i]
+  # for i
+
+  minStats = [ StatAccumulator(), StatAccumulator(), ]
+  for x, y in zip(t, V)[minPos:minPos + l]:
+    minStats[0].add(x)
+    minStats[1].add(y)
+
+  maxStats = [ StatAccumulator(), StatAccumulator(), ]
+  for x, y in zip(t, V)[maxPos:maxPos + l]:
+    maxStats[0].add(x)
+    maxStats[1].add(y)
+
   return {
-    'positive': { 'value': V[iMax] - baseline, 'valueError': 0.0, 'time': t[iMax], 'timeError': 0.0, },
-    'negative': { 'value': V[iMin] - baseline, 'valueError': 0.0, 'time': t[iMin], 'timeError': 0.0, },
+    'positive': { 'value': maxStats[1].average() - baseline, 'valueError': maxStats[1].RMS(), 'time': maxStats[0].average(), 'timeError': maxStats[0].RMS(), },
+    'negative': { 'value': minStats[1].average() - baseline, 'valueError': minStats[1].RMS(), 'time': minStats[0].average(), 'timeError': minStats[0].RMS(), },
     }
 # extractPeaks()
 
