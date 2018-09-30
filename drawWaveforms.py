@@ -301,9 +301,10 @@ class WaveformSourceFilePath:
     return msg
   # describe()
   
-  def allChannelSources(self, channelIndex, N = 10):
+  def allChannelSources(self, channelIndex = None, N = 10):
+    """Returns the list of N expected waveform files at the specified channel index."""
     values = self.sourceInfo.copy()
-    values.setChannelIndex(channelIndex)
+    if channelIndex is not None: values.setChannelIndex(channelIndex)
     values.setIndex((self.sourceInfo.position - 1) * N)
     
     files = []
@@ -315,6 +316,7 @@ class WaveformSourceFilePath:
   # allChannelSources()
   
   def allPositionSources(self, N = 10):
+    """Returns the list of 4N expected waveform files for the current position."""
     files = []
     for channelIndex in xrange(1, WaveformSourceInfo.MaxChannels + 1): files.extend(self.allChannelSources(channelIndex, N))
     return files
@@ -608,7 +610,7 @@ def extractBaseline(t, V):
 
 
 def extractPeaks(t, V, baseline):
-  """A barely acceptable algorithm t find peaks w.r.t. waveform baseline.
+  """A barely acceptable algorithm to find peaks w.r.t. waveform baseline.
   
   Quite shameful.
   """
