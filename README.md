@@ -6,6 +6,7 @@ Setup and requirements
 The scripts typically use National Instrument VISA and CERN ROOT.
 Both should be available under python _at the same time_.
 This might require a compilation of CERN ROOT from scratch.
+In appendix, there is some report of success in installing the required software in a Linux distribution.
 
 A small `setup` script is provided, which allows to run the scripts in this repository from any directory.
 A typical setup is:
@@ -17,6 +18,20 @@ To test that everything works as it should, make sure that this does not yield a
     
     python -c 'import ROOT, visa'
     
+A (local) network connection needs to be established between the node (say, laptop) and the oscilloscope.
+To test the communication, try:
+    
+    import visa
+    manager = visa.ResourceManager()
+    scope = manager.open_resource('TCPIP0::192.168.230.29::INSTR')
+    print(scope.query("*IDN?"))
+    
+which in my case prints:
+    
+    TEKTRONIX,TDS 3054C,0,CF:91.1CT FV:v4.05 TDS3FFT:v1.00 TDS3TRG:v1.00
+    
+    
+(this means success!)
 
 
 Data acquisition with oscilloscope
@@ -78,6 +93,16 @@ Some `ChimneyReader` useful callables:
 * `lastList()`: list (like in "returns a python list") of all data files expected to have been created in the last data acquisition
 * `plotLast()`: produces plots of the last connection/position (it's also automatically done by `next()`)
 
+from testDriver import *  # make everything in `testDriver` promptly ready
+loadScopeReader("192.168.230.29")
+reader = ChimneyReader()  # `reader` will keep track of where we are
+reader.start('WW04')      # declare we start a new chimney (can be done in constructor too)
+reader.next()             # take the first connection + position
+reader.next()             # take the second connection + position
+reader.next()             # take the third connection + position; let's assume we did a mistake...
+reader.removeLast()       # remove the last connection + position, prepare to take it again
+reader.next()             # take the third connection + position again
+
 
 Bugs
 =====
@@ -85,5 +110,67 @@ Bugs
 `ChimneyReader`
 ----------------
 
-Navigation close to the ends of the chimney connections (first connection and last position, last conection and first position) is not well protected and trouble will occur when trying to go back after finishing (e.g. if there was an error on the last position of the first connection).
+Navigation close to the ends of the chimney connections (first connection and last position, last connection and first position) is not well protected and trouble will occur when trying to go back after finishing (e.g. if there was an error on the last position of the first connection).
 
+
+
+Appendix: installing oscilloscope interface under Linux OS
+===========================================================
+
+The installation of the required interface to the oscilloscope includes two components:
+
+1. National Instruments drivers ("VISA")
+2. python interface to the oscilloscope (via the drivers)
+
+
+Installing National Instrument VISA drivers
+--------------------------------------------
+
+Instructions on installing National Instrument VISA drivers in Linux OS are at http://www.ni.com/product-documentation/54754/en.
+They work for selected Linux distributions, all RPM-based. The idea is that you download the location of additional software repositories from National Instruments, and install from them with the native package manage of your Linux distribution.
+
+Effectively what I did for OpenSUSE was:
+* download the "driver" package (from http://www.ni.com/download/ni-linux-device-drivers-2018/7664/en); on early November 2018, I ended up downloading drivers from October 2018
+* unzip the file, and ask my distribution to install the proper RPM (`sudo zypper install ./rpm_OpenSUSE423.rpm`)
+* open openSUSE package manager interface (from YaST2); a new National Instrument repository is listed _and enabled_ already
+* selected the NI VISA runtime, development package and documentation (probably selecting the metapackage `ni-visa` will do, and overdo as well);
+  a number of packages lacked checksum verification (meaning the reference checksum was not found): I chose to _ignore_ the problem
+* 200 MB later, we are set to go.
+
+More-or-less useful links:
+
+* [NIVISA](https://www.ni.com/visa): introduction to what NI-VISA is and is for
+
+
+Installing the python interface
+--------------------------------
+
+Documentation on the Python interface can be found on [PyVISA][GitHub].
+The recommended approach is to install the interface via `pip`: `pip install pyvisa`.
+In my distribution (openSUSE), `pip` is in fact the Python 3 version of it, and I had to make sure I was using `pip2` instead:
+    
+    pip2 install --user pyvisa
+    
+I also requested the package to be installed in my user area rather than system-wide. If installing on a system you manage with multiple users, then you might want to install it system-wide instead (`sudo pip2 install pyvisa`).
+
+It is not clear to me if the oscilloscope needs to be listed in `/etc/ni-visa/visaconf.ini`.
+I ended up adding it via `visaconf` executable, which required some LabView packages to be installed, which in openSUSE was a problem since they had no checksum.
+But this is what it ended up adding to the configuration file:
+
+    [TCPIP-RSRCS]
+    SynchronizeAllSocket=0
+    SynchronizeAllVxi11=1
+    NumOfResources=1
+    Name0="TCPIP0::192.168.230.29::INSTR"
+    Enabled0=1
+    Static0=1
+
+    [ALIASES]
+    Alias0="'SLAC-borrowed-TDS3054C','TCPIP0::192.168.230.29::INSTR'"
+    NumAliases=1
+
+where `192.168.230.29` is the address I assigned to the oscilloscope.
+
+
+[NIVISA]: https://www.ni.com/visa
+[PyVISA]: https://github.com/pyvisa/pyvisa

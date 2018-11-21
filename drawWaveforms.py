@@ -49,6 +49,8 @@ class WaveformSourceInfo:
     self.position = position
     self.updateChannel()
   def setIndex(self, index): self.index = index
+  def setFirstIndex(self, N = 10):
+    self.setIndex(self.firstIndexOf(self.position, N=N))
   def increaseIndex(self, amount = 1): self.index += amount
   
   def updateChannel(self):
@@ -64,14 +66,14 @@ class WaveformSourceInfo:
 
 
 ################################################################################
-### `WaveformSourceParser`: waveform parameter management and extraction
+### `WaveformSourceFilePath`: waveform parameter management
 
-class WaveformSourceParser:
+class WaveformSourceFilePath:
   
-  def __init__(self, path = None):
-    if path is not None: self.parse(path)
+  StandardDirectory = "CHIMNEY_%(chimney)s"
+  StandardPattern = "waveform_CH%(channelIndex)d_CHIMNEY_%(chimney)s_CONN_%(connection)s_POS_%(position)d_%(index)d.csv"
   
-  def setup(self, chimney, connection, position, channelIndex, index, filePattern, sourceDir = ".", ):
+  def __init__(self, sourceInfo, filePattern, sourceDir = "."):
     """
     The expected pattern is:
     
@@ -80,95 +82,20 @@ class WaveformSourceParser:
     """
     self.sourceDir = sourceDir
     self.sourceFilePattern = filePattern
-    self.sourceInfo = WaveformSourceInfo(
-      chimney=chimney, connection=connection, position=position,
-      channelIndex=channelIndex, index=index
-      )
-    
+    self.sourceInfo = sourceInfo
     self.sourceInfo.updateChannel()
-    self.sourceFilePattern = filePattern
-  # setup()
+  # __init__()
   
-  def parse(self, path):
-    """
-    The expected pattern is:
-    
-    "path/waveform_CH3_CHIMNEY_EE11_CONN_V12_POS_7_62.csv"
-    
-    """
-    self.sourceDir, self.triggerFileName = os.path.split(path)
-    
-    name, ext = os.path.splitext(self.triggerFileName)
-    if ext.lower() != '.csv':
-      print >>sys.stderr, "Warning: the file '%s' has not the name of a comma-separated values file (CSV)." % path
-    tokens = name.split("_")
-    
-    self.sourceInfo = WaveformSourceInfo()
-    
-    self.sourceFilePattern = []
-    
-    iToken = 0
-    while iToken < len(tokens):
-      Token = tokens[iToken]
-      iToken += 1
-      TOKEN = Token.upper()
-      
-      if TOKEN == 'CHIMNEY':
-        try: self.sourceInfo.chimney = tokens[iToken]
-        except IndexError:
-          raise RuntimeError("Error parsing file name '%s': no chimney." % self.triggerFileName)
-        iToken += 1
-        self.sourceFilePattern.extend([ Token, "%(chimney)s", ])
-        continue
-      elif TOKEN == 'CONN':
-        try: self.sourceInfo.connection = tokens[iToken]
-        except IndexError:
-          raise RuntimeError("Error parsing file name '%s': no connection code." % self.triggerFileName)
-        iToken += 1
-        self.sourceFilePattern.extend([ Token, "%(connection)s", ])
-        continue
-      elif TOKEN == 'POS':
-        try: self.sourceInfo.position = int(tokens[iToken])
-        except IndexError:
-          raise RuntimeError("Error parsing file name '%s': no connection code." % self.triggerFileName)
-        except ValueError:
-          raise RuntimeError("Error parsing file name '%s': '%s' is not a valid position." % (self.triggerFileName, tokens[iToken]))
-        self.sourceFilePattern.extend([ Token, "%(position)s", ])
-        iToken += 1
-        continue
-      elif TOKEN == 'WAVEFORM':
-        channel = tokens[iToken]
-        if not channel.startswith('CH'):
-          raise RuntimeError("Error parsing file name '%s': '%s' is not a valid channel." % (self.triggerFileName, channel))
-        try: self.sourceInfo.setChannelIndex(int(channel[2:]))
-        except IndexError:
-          raise RuntimeError("Error parsing file name '%s': no connection code." % self.triggerFileName)
-        except ValueError:
-          raise RuntimeError("Error parsing file name '%s': '%s' is not a valid channel number." % (self.triggerFileName, channel[2:]))
-        self.sourceFilePattern.extend([ Token, "CH%(channelIndex)d", ])
-        iToken += 1
-        continue
-      else:
-        try:
-          self.sourceInfo.setIndex(int(Token))
-          self.sourceFilePattern.append('%(index)d')
-        except ValueError:
-          print >>sys.stderr, "Unexpected tag '%s' in file name '%s'" % (Token, self.triggerFileName)
-          self.sourceFilePattern.append(Token)
-      # if ... else
-    # while
-    
-    if self.sourceInfo.chimney is None: raise RuntimeError("No chimney specified in file name '%s'" % self.triggerFileName)
-    if self.sourceInfo.connection is None: raise RuntimeError("No connection specified in file name '%s'" % self.triggerFileName)
-    if self.sourceInfo.position is None: raise RuntimeError("No position specified in file name '%s'" % self.triggerFileName)
-    if self.sourceInfo.channelIndex is None: raise RuntimeError("No channel specified in file name '%s'" % self.triggerFileName)
-    if self.sourceInfo.index is None: raise RuntimeError("No index specified in file name '%s'" % self.triggerFileName)
-    
-    self.sourceInfo.updateChannel()
-    self.sourceFilePattern = "_".join(self.sourceFilePattern)
-    if ext: self.sourceFilePattern += ext
-    
-  # parse()
+  def setSourceInfo(self, sourceInfo): self.sourceInfo = sourceInfo
+  
+  def formatString(self, s):
+    info = vars(self).copy()
+    info.update(vars(self.sourceInfo))
+    return s % info
+  # formatString()
+  
+  def buildPath(self):
+    return os.path.join(self.sourceDir, self.formatString(self.sourceFilePattern))
   
   def describe(self):
     msg = "Source directory: '%s'\nPattern: '%s'" % (self.sourceDir, self.sourceFilePattern)
@@ -195,8 +122,101 @@ class WaveformSourceParser:
     return files
   # allPositionSources()
   
+# class WaveformSourceFilePath
+
+
+def parseWaveformSource(path):
+  """Parses `path` and returns a filled `WaveformSourceFilePath`.
   
-# class WaveformSourceParser
+  The expected pattern is:
+  
+  "path/waveform_CH3_CHIMNEY_EE11_CONN_V12_POS_7_62.csv"
+  
+  """
+  sourceDir, triggerFileName = os.path.split(path)
+  
+  name, ext = os.path.splitext(triggerFileName)
+  if ext.lower() != '.csv':
+    print >>sys.stderr, "Warning: the file '%s' has not the name of a comma-separated values file (CSV)." % path
+  tokens = name.split("_")
+  
+  sourceInfo = WaveformSourceInfo()
+  
+  sourceFilePattern = []
+  
+  iToken = 0
+  while iToken < len(tokens):
+    Token = tokens[iToken]
+    iToken += 1
+    TOKEN = Token.upper()
+    
+    if TOKEN == 'CHIMNEY':
+      try: sourceInfo.chimney = tokens[iToken]
+      except IndexError:
+        raise RuntimeError("Error parsing file name '%s': no chimney." % triggerFileName)
+      iToken += 1
+      sourceFilePattern.extend([ Token, "%(chimney)s", ])
+      continue
+    elif TOKEN == 'CONN':
+      try: sourceInfo.connection = tokens[iToken]
+      except IndexError:
+        raise RuntimeError("Error parsing file name '%s': no connection code." % triggerFileName)
+      iToken += 1
+      sourceFilePattern.extend([ Token, "%(connection)s", ])
+      continue
+    elif TOKEN == 'POS':
+      try: sourceInfo.position = int(tokens[iToken])
+      except IndexError:
+        raise RuntimeError("Error parsing file name '%s': no connection code." % triggerFileName)
+      except ValueError:
+        raise RuntimeError("Error parsing file name '%s': '%s' is not a valid position." % (triggerFileName, tokens[iToken]))
+      sourceFilePattern.extend([ Token, "%(position)s", ])
+      iToken += 1
+      continue
+    elif TOKEN == 'WAVEFORM':
+      channel = tokens[iToken]
+      if not channel.startswith('CH'):
+        raise RuntimeError("Error parsing file name '%s': '%s' is not a valid channel." % (triggerFileName, channel))
+      try: sourceInfo.setChannelIndex(int(channel[2:]))
+      except IndexError:
+        raise RuntimeError("Error parsing file name '%s': no connection code." % triggerFileName)
+      except ValueError:
+        raise RuntimeError("Error parsing file name '%s': '%s' is not a valid channel number." % (triggerFileName, channel[2:]))
+      sourceFilePattern.extend([ Token, "CH%(channelIndex)d", ])
+      iToken += 1
+      continue
+    else:
+      try:
+        sourceInfo.setIndex(int(Token))
+        sourceFilePattern.append('%(index)d')
+      except ValueError:
+        print >>sys.stderr, "Unexpected tag '%s' in file name '%s'" % (Token, triggerFileName)
+        sourceFilePattern.append(Token)
+    # if ... else
+  # while
+  
+  if sourceInfo.chimney is None: raise RuntimeError("No chimney specified in file name '%s'" % triggerFileName)
+  if sourceInfo.connection is None: raise RuntimeError("No connection specified in file name '%s'" % triggerFileName)
+  if sourceInfo.position is None: raise RuntimeError("No position specified in file name '%s'" % triggerFileName)
+  if sourceInfo.channelIndex is None: raise RuntimeError("No channel specified in file name '%s'" % triggerFileName)
+  if sourceInfo.index is None: raise RuntimeError("No index specified in file name '%s'" % triggerFileName)
+  
+  sourceInfo.updateChannel()
+  sourceFilePattern = "_".join(sourceFilePattern)
+  if ext: sourceFilePattern += ext
+  
+  return WaveformSourceFilePath(
+    chimney,
+    connection,
+    position,
+    channelIndex,
+    index,
+    filePattern,
+    sourceDir
+    )
+  
+# parseWaveformSource()
+  
 
 
 ################################################################################
@@ -606,7 +626,7 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
 
 def plotAllPositionsAroundFile(path, canvasName = None, canvas = None, options = {}):
   
-  sourceSpecs = WaveformSourceParser(path)
+  sourceSpecs = parseWaveformSource(path)
   print sourceSpecs.describe()
   
   return plotAllPositionWaveforms(sourceSpecs, canvasName=canvasName, canvas=canvas, options=options.get('draw', {}))
@@ -637,7 +657,7 @@ if __name__ == "__main__":
   
   if ROOT.gPad: ROOT.gPad.SaveAs(ROOT.gPad.GetName() + ".pdf")
   
-  AllFiles = WaveformSourceParser(args.fileName).allPositionSources()
+  AllFiles = parseWaveformSource(args.fileName).allPositionSources()
   print "Matching files:"
   for filePath in AllFiles:
     print filePath,

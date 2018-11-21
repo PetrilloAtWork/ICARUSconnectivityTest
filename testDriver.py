@@ -1,57 +1,44 @@
 #!/usr/bin/env python
 
-# from testDriver import * ; reader = ChimneyReader("EW00") ; reader.start()
+#
+# from testDriver import * ; reader = ChimneyReader("EW00", fake=True) ; reader.start()
+# reader.next()
+# 
 
 __doc__ = """
 Interactive driver for the scope reader.
 
-So far, only python environment stuff is usable (see `ChimneyReader`).
+So far, only python environment stuff is usable interactively
+(see `ChimneyReader`), but running from python is still quite better.
 """
 
 ################################################################################
 ### default settings
 
 DefaultNetwork = '192.168.230'
-DefaultIP = DefaultNetwork + '.71'
-
-################################################################################
-### script customization utilities
-
-def counterFile(): return "waveform_id_%d.txt" % IPaddress[-1]
-def listFile(): return "waveform_list_%d.txt" % IPaddress[-1]
-
-def loadScopeReader(IP):
-  global IPaddress
-  IPaddress = map(int, IP.split('.'))
-  moduleName = "scope_readerB%d" % IPaddress[-1]
-  
-  global scope_reader
-  try:
-    del scope_reader
-    del sys.modules['scope_reader']
-  except: pass
-  
-  import importlib
-  scope_reader = importlib.import_module(moduleName)
-  
-  print "Imported '%s' (as 'scope_reader')" % moduleName
-  
-  global quickAnalysis
-  quickAnalysis = scope_reader.quickAnalysis
-  
-# loadScopeReader()
+# DefaultIP = DefaultNetwork + '.71'
+DefaultIP = DefaultNetwork + '.29'
 
 
 ################################################################################
 ### importing and default setup
 import drawWaveforms
+from scopeTalker import TDS3054Ctalker
+import numpy
 import random
 import sys
 import re
 import os
+import logging
 
-loadScopeReader(DefaultIP)
-print "Use `loadScopeReader(<IP address>)` to load a different one."
+# set verbosity level to `INFO`
+logging.getLogger().setLevel(logging.INFO)
+
+logging.info("""Default oscilloscope IP is now {DefaultIP}.
+  A different default can be set by changing `{moduleName}.DefaultIP` value.
+  A reader can be initialised with a different IP via constructor argument IP
+  (e.g. `reader = {moduleName}.ChimneyReader(IP="192.168.230.71")`).
+  """.format(DefaultIP=DefaultIP, moduleName=__name__))
 
 
 ################################################################################
@@ -81,51 +68,6 @@ def confirm(msg, yes="Y", no="N", caseSensitive=False):
   # while
   assert False
 # confirm()
-
-
-def removeLinesFromFile(filePath, lines):
-  
-  tempFile = filePath + ".tmp"
-  nRemoved = 0
-  with open(filePath, 'r') as source, open(tempFile, 'w') as dest:
-    
-    for line in source:
-      if line.strip() in lines:
-        nRemoved += 1
-        continue
-      dest.write(line)
-    # for
-  # with
-  os.remove(filePath)
-  os.rename(tempFile, filePath)
-  return nRemoved
-# removeLinesFromFile()
-
-
-################################################################################
-### scope reading management utilities
-
-def setCounter(position = 1, N = 10, quiet = False):
-  
-  fileName = counterFile()
-  
-  if not quiet:
-    with open(fileName, "r") as f:
-      oldValue = f.readline().strip()
-  
-  with open(fileName, "w") as f:
-    print >>f, (N * (position - 1) + 1)
-  
-  if not quiet:
-    with open(fileName, "r") as f:
-      newValue = int(f.readline().strip())
-  
-  if not quiet:
-    print "Counter in '%s' set from %s to %s" % (fileName, oldValue, newValue)
-  
-# setCounter()
-
-def resetCounter(N = 10, quiet = False): setCounter(N=N, quiet=quiet)
 
 
 ################################################################################
@@ -188,6 +130,13 @@ class ReaderState:
     # if ... else
   # execute()
   
+  def makeWaveformSourceInfo(self, channelNo = None, index = None):
+    return drawWaveforms.WaveformSourceInfo(
+      chimney=self.chimney, connection=self.cable(), channelIndex=channelNo,
+      position=self.position, index=index
+      )
+  # makeWaveformSourceInfo()
+  
 # class ReaderState
 
 
@@ -195,7 +144,13 @@ class ReaderState:
 ### ChimneyReader: helper with functions for a DAQ workflow
 
 class ChimneyReader:
+  """
   
+  `ChimneyReader` now controls the communication with the oscilloscope, via a
+  `ScopeTalker` object (in fact, a `TDS3054Ctalker` object).
+  
+  
+  """
   CableTags = { 'EE': 'V', 'EW': 'S', 'WE': 'V', 'WW': 'S', }
   
   MinPosition = 1
@@ -203,11 +158,19 @@ class ChimneyReader:
   MinCable = 1
   MaxCable = 18
   
-  def __init__(self, chimney = None, N = 10, quiet = True):
+  WaveformFilePattern = drawWaveforms.WaveformSourceFilePath.StandardPattern
+  WaveformDirectory = drawWaveforms.WaveformSourceFilePath.StandardDirectory
+  
+  def __init__(self,
+   chimney = None, IP = DefaultIP, N = 10,
+   quiet = True, fake = False
+   ):
+    self.scope = TDS3054Ctalker(IP, connect=not fake)
     self.readerState = ReaderState()
     self.readerState.chimney = chimney
     self.readerState.N = N
     self.setQuiet(quiet)
+    self.setFake(fake)
     self.canvas = None
   # __init__()
   
@@ -252,12 +215,79 @@ class ChimneyReader:
     
     self.sourceSpecs = self.setupSourceSpecs()
     
+    # here we assume that (1) `waveformInfo` is complete enough for the
+    # directory name and (2) that name is common to all the files
+    tempDir = self.tempDirName(self.sourceSpecs.sourceInfo)
+    try: os.makedirs(tempDir)
+    except os.error: pass # it exists, which is actually good
+    logging.info("Output for this chimney will be written into: '{}'".format(tempDir))
+    
     self.printNext()
   # start()
   
-  def command(self):
-    """quickAnalysis(10, 'CHIMNEY_EW9','CONN_V01','POS_1')"""
-    return "quickAnalysis(%(N)d, 'CHIMNEY_%(chimney)s', 'CONN_%(cableTag)s%(cableNo)02d', 'POS_%(position)s')" % vars(self.readerState)
+  def readout(self):
+    # We try to avoid code duplication: since some code putting together file
+    # names already exists in `drawWaveforms`, we use code from there.
+    # The file name composing code relies on a "state" which is a superset of
+    # when is included in `ReaderState` (except for `N`): we use that state
+    # (`WaveformSourceInfo` object) to track the state internally.
+    # Note that here the state that is also in `readerState` is not changed.
+    
+    waveformInfo = self.readerState.makeWaveformSourceInfo()
+    waveformInfo.setFirstIndex(N=self.readerState.N)
+    self.sourceSpecs.setSourceInfo(waveformInfo)
+    
+    for iSet in range(self.readerState.N):
+      for iChannel in range(waveformInfo.MaxChannels):
+        
+        #
+        # set the state
+        #
+        channelNo = iChannel + 1
+        waveformInfo.setChannelIndex(channelNo)
+        
+        #
+        # read the data from the oscilloscope
+        #
+        logging.debug("exec readout()")
+        Time, Volt = (
+          readData(waveformInfo.channelIndex)
+          if not self.readerState.fake
+          else (
+            numpy.arange(0.0, 1.0E-5 * self.scope.WaveformSamples, 1.0E-5),
+            numpy.arange(0.0, 1.0E-6 * self.scope.WaveformSamples, 1.0E-6),
+          ))
+        
+        #
+        # save it in a file
+        #
+        waveformFilePath = self.currentWaveformFilePath()
+        self.writeWaveform(waveformFilePath, Time, Volt)
+        
+      # for channels
+      waveformInfo.increaseIndex()
+    # for waveform set number
+    
+  # readout()
+  
+  def currentWaveformFilePath(self): return self.sourceSpecs.buildPath()
+  
+  def writeWaveform(self, waveformFilePath, Time, Volt):
+    """Writes `Time` and `Volt` information into a CSV file `waveformFilePath`.
+    
+    The two data structures are expected to be numpy iterables.
+    """
+    
+    nSamples = 0
+    with open(waveformFilePath, 'w+') as file_:
+      for values in zip(numpy.nditer(Time), numpy.nditer(Volt)):
+        print >>file_, ",".join([ "%g" ] * len(values)) % values
+        nSamples += 1
+      # for
+    # with
+    logging.info("Written {} points into '{}'".format(nSamples, waveformFilePath))
+  # writeWaveform()
+  
   
   def printNext(self):
     if self.readerState.chimney is None:
@@ -266,7 +296,7 @@ class ChimneyReader:
     if self.readerState.cableNo is None or self.readerState.position is None:
       print "No test next."
       return False
-    print "next(): %s => %s" % (self.readerState.stateStr(), self.command())
+    print "next(): %s" % self.readerState.stateStr()
   # printNext()
   
   def skipToNext(self, n = 1):
@@ -300,9 +330,7 @@ class ChimneyReader:
   # skipToPrev()
   
   def readNext(self):
-    self.setCounter()
-    print "exec %s" % self.command()
-    if not self.readerState.fake: exec self.command()
+    self.readout()
     self.plotLast()
     self.skipToNext()
     self.printNext()
@@ -324,8 +352,7 @@ class ChimneyReader:
       print >>sys.sdterr, "There was no previous reading! now you did it."
       return False
     
-    # removal code will go here:
-    # 1) remove data files
+    # remove data files
     dataFiles = self.listLast()
     if not confirm("Remove %d files from %s?" % (len(dataFiles), self.readerState.stateStr())):
       print "You're the boss."
@@ -341,33 +368,29 @@ class ChimneyReader:
         print >>sys.stderr, "Failed to remove '%s': %s" % (filePath, e)
     # for
     
-    # 2) remove entries in the data list
-    nRemoved = removeLinesFromFile(listFile(), map(os.path.basename, dataFiles))
-    print "Removed %d/%d lines from '%s'" % (nRemoved, len(dataFiles), listFile())
-    
-    # 3) reset counter (not needed since it's manually set each time)
-    self.setCounter()
-    
     if (n > 1) and not self.removeLast(n-1): return False
     if n == 1: self.printNext()
     return True
   # removeLast()
   
   def setupSourceSpecs(self):
-    sourceSpecs = drawWaveforms.WaveformSourceParser()
-    sourceSpecs.setup(
-      self.readerState.chimney, self.readerState.cable(),
-      self.readerState.position, 1, # channelIndex
-      self.readerState.firstIndex(),
-      filePattern="waveform_CH%(channelIndex)d_CHIMNEY_%(chimney)s_CONN_%(connection)s_POS_%(position)d_%(index)d.csv",
-      sourceDir = scope_reader.folder_name
+    sourceInfo = drawWaveforms.WaveformSourceInfo(
+      chimney=self.readerState.chimney, connection=self.readerState.cable(),
+      position=self.readerState.position, channelIndex=1,
+      index=self.readerState.firstIndex()
       )
-    return sourceSpecs
+    sourceInfo.updateChannel()
+    sourceDir = sourceInfo.formatString(ChimneyReader.WaveformDirectory)
+    return drawWaveforms.WaveformSourceFilePath(
+      sourceInfo,
+      filePattern=ChimneyReader.WaveformFilePattern,
+      sourceDir=self.tempDirName(sourceInfo),
+      )
   # setupSourceSpecs()
   
-  def setCounter(self):
-    setCounter(position=self.readerState.position, N=self.readerState.N, quiet=self.readerState.quiet)
-
+  def tempDirName(self, sourceInfo):
+    return sourceInfo.formatString(ChimneyReader.WaveformDirectory) + "_inprogress"
+  
 # class ChimneyReader
 
 
@@ -376,36 +399,53 @@ class ChimneyReader:
 
 if __name__ == "__main__":
   
-  readerState = ReaderState()
+  import argparse
   
+  parser = argparse.ArgumentParser(
+    description=__doc__
+    )
+  
+  parser.add_argument("--ip", action="store", dest="IPaddress",
+    help="IP address of the oscilloscope [%(default)s]", default=DefaultIP)
+  parser.add_argument("--chimney", "-C", action="store",
+    help="chimney to start with [%(default)s]", default="EW00")
+  parser.add_argument('--fake', '-n', action='store_true',
+     help="do not talk to the oscilloscope and make up the data")
+  
+  arguments = parser.parse_args()
+  
+  reader = ChimneyReader("EW00", fake=arguments.fake)
+  
+  print """Quick start:
+  start()
+  next()
+  ...
+  
+  """
+  
+  LastCommand = None
   while True:
     
     try:
+      print >>sys.stderr, "$ ",
       FullCommand = sys.stdin.readline().strip()
     except KeyboardInterrupt:
       print "Next time be a good kid and write `quit`."
       break
     #
     
-    Command, Arguments = FullCommand.split(1)
-    Arguments = Arguments.split()
-    command = Command.lower()
+    if not FullCommand.strip() and LastCommand:
+      FullCommand = LastCommand
+      print "(repeat)", FullCommand
     
-    if command == 'quit':
-      print "Exiting."
-      break
-    elif command in ( 'enable', 'disable', ):
-      getattr(readerState, command)()
-      continue
-    elif command in [ 'chimney', 'ch', 'c' ]:
-      if len(Arguments) == 0:
-        print "WHICH chimney?"
-        continue
-      chimney = Arguments[0]
-      readerState.startChimney(chimney)
-    else:
-      readerState.execute(command)
+    if FullCommand.strip().split(None, 1)[0].lower().startswith("quit"): break
     
+    try:
+      eval("reader." + FullCommand.strip())
+    except Exception as e:
+      logging.error(e)
+    
+    LastCommand = FullCommand
     
   # while True
   sys.exit(0)
