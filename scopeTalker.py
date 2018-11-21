@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 
+from stopwatch import StopWatch
 import visa
 import numpy
 from struct import unpack
 import logging
-import timeit
 
 
 class ScopeTalker:
@@ -127,7 +127,45 @@ class TDS3054Ctalker(ScopeTalker):
   
   """
   
+  MaxChannels = 4
   WaveformSamples = 10000
+  
+  def __init__(self, *args, **kargs):
+    ScopeTalker.__init__(self, *args, **kargs)
+    self.timers = {
+      'setup':    StopWatch(startNow = False),
+      'readout':  StopWatch(startNow = False),
+      'convert':  StopWatch(startNow = False),
+      'readData': StopWatch(startNow = False),
+      }
+  # __init__()
+  
+  def readDataSetup(self):
+    """Sets all channels for reading waveforms, and reads their settings.
+    
+    This function should be called just before a sequence of `readData()` calls.
+    """
+    with self.timers['setup']:
+      self.calibration = {}
+      for iChannel in range(self.MaxChannels):
+        channel = "CH{}".format(iChannel + 1)
+        self.write(
+          'DATa:SOURce {channel};'   # select the channel
+          ' ENCdg SRPBinary;'        # little endian, unsigned
+          ' WIDth 1;'                # one byte per point (may be 2, that is 9 bits)
+          ' STARt 1;'                # read the whole waveform: points 1 to 10000
+          ' DATa:STOP {points}'
+          .format(channel=channel, points=TDS3054Ctalker.WaveformSamples)
+          )
+        
+        self.calibration[channel] = {
+          'VoltOffset': float(((self.query('WFMPRE:YZERO?')).split(' '))[-1]),
+          'ADCtoVolt':  float(((self.query('WFMPRE:YMULT?')).split(' '))[-1]),
+          'ADCoffset':  float(((self.query('WFMPRE:YOFF?' )).split(' '))[-1]),
+          'TimeStep':   float(((self.query('WFMPRE:XINCR?')).split(' '))[-1]),
+          }
+      # for
+  # readDataSetup()
   
   def readData(self, channel):
     """Read the specified channel from the oscilloscope.
@@ -136,35 +174,39 @@ class TDS3054Ctalker(ScopeTalker):
     [seconds] and the corresponding sampled voltage [volt].
     
     """
-    if not isinstance(channel, str): channel = "CH{:d}".format(channel)
-    assert(channel.startswith("CH"))
-    self.write(
-      'DATa:SOURce {channel};'   # select the channel
-      ' ENCdg SRPBinary;'        # little endian, unsigned
-      ' WIDth 1;'                # one byte per point (may be 2, that is 9 bits)
-      ' STARt 1;'                # read the whole waveform: points 1 to 10000
-      ' DATa:STOP {points}'
-      .format(channel=channel, points=TDS3054Ctalker.WaveformSamples)
-      )
-    
-    VoltOffset = float(((self.query('WFMPRE:YZERO?')).split(' '))[-1])
-    ADCtoVolt  = float(((self.query('WFMPRE:YMULT?')).split(' '))[-1])
-    ADCoffset  = float(((self.query('WFMPRE:YOFF?')).split(' '))[-1])
-    TimeStep   = float(((self.query('WFMPRE:XINCR?')).split(' '))[-1])
+    with self.timers['readData']:
+      
+      if not isinstance(channel, str): channel = "CH{:d}".format(channel)
+      assert(channel.startswith("CH"))
+      
+      calibrationInfo = self.calibration[channel]
+      
+      with self.timers['setup']:
+        # most of setup is performed by `readDataSetup()`
+        self.write('DATa:SOURce ' + channel)
+      # setup
+      
+      with self.timers['readout']:
+        self.write('CURVE?')
+        data = self.read_raw()
+      # readout
+      
+      with self.timers['convert']:
+        #the value for 13 accounts for and removes :CURV #510000
+        ADC_wave = self.blockData(data)
+        
+        ADC_wave = numpy.array(unpack('%sB' % len(ADC_wave), ADC_wave))
 
-    self.write('CURVE?')
-    data = self.read_raw()
-
-    #the value for 13 accounts for and removes :CURV #510000
-    ADC_wave = self.blockData(data)
-    
-    ADC_wave = numpy.array(unpack('%sB' % len(ADC_wave),ADC_wave))
-
-    #this is units of volts and milliseconds
-    Volts = VoltOffset + (ADC_wave - ADCoffset) * ADCtoVolt
-    Time = numpy.arange(0.0, TimeStep * len(Volts), TimeStep)
-    
-    return (Time, Volts)
+        #this is units of volts and milliseconds
+        Volts = calibrationInfo['VoltOffset'] \
+          + (ADC_wave - calibrationInfo['ADCoffset']) * calibrationInfo['ADCtoVolt']
+        
+        TimeStep = calibrationInfo['TimeStep']
+        Time = numpy.arange(0.0, TimeStep * len(Volts), TimeStep)
+      # convert
+      
+      return (Time, Volts)
+    # with
   # readData()
   
   
@@ -193,7 +235,24 @@ class TDS3054Ctalker(ScopeTalker):
     # if
     return block[startData:-1]
   # blockData()
-
+  
+  
+  def printTimers(self, out = logging.info):
+    out("""Timing of `TDS3054Ctalker.readData()`:
+      * setup:      {setup}
+      * readout:    {readout}
+      * conversion: {convert}
+      * total:      {readData}
+      """.format(
+        **dict([
+          ( timerName, timer.toString("ms", options=('times', 'average')) )
+          for timerName, timer in self.timers.items()
+        ])
+      )
+      )
+  # printTimers()
+  
+  
 # class TDS3054Ctalker
 
 

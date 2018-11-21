@@ -15,14 +15,11 @@ So far, only python environment stuff is usable interactively
 ################################################################################
 ### default settings
 
-DefaultNetwork = '192.168.230'
-# DefaultIP = DefaultNetwork + '.71'
-DefaultIP = DefaultNetwork + '.29'
-
 
 ################################################################################
 ### importing and default setup
 import drawWaveforms
+from stopwatch import StopWatch
 from scopeTalker import TDS3054Ctalker
 import numpy
 import random
@@ -31,14 +28,9 @@ import re
 import os
 import logging
 
-# set verbosity level to `INFO`
+# set verbosity level to `INFO`; not all output has been converted to `logging`
+# this value is reset by `ChimneyReader`.
 logging.getLogger().setLevel(logging.INFO)
-
-logging.info("""Default oscilloscope IP is now {DefaultIP}.
-  A different default can be set by changing `{moduleName}.DefaultIP` value.
-  A reader can be initialised with a different IP via constructor argument IP
-  (e.g. `reader = {moduleName}.ChimneyReader(IP="192.168.230.71")`).
-  """.format(DefaultIP=DefaultIP, moduleName=__name__))
 
 
 ################################################################################
@@ -161,18 +153,184 @@ class ChimneyReader:
   WaveformFilePattern = drawWaveforms.WaveformSourceFilePath.StandardPattern
   WaveformDirectory = drawWaveforms.WaveformSourceFilePath.StandardDirectory
   
+  class ConfigurationError(RuntimeError):
+    def __init__(self, msg, *args, **kargs):
+      RuntimeError.__init__(self, "Configuration error: " + msg, *args, **kargs)
+  # ConfigurationError
+  
   def __init__(self,
-   chimney = None, IP = DefaultIP, N = 10,
-   quiet = True, fake = False
+   configurationFile,
+   chimney = None,
+   IP = None, N = None, fake = None
    ):
-    self.scope = TDS3054Ctalker(IP, connect=not fake)
+    """Creates a new `ChimneyReader`.
+    
+    This object *requires* a configuration file, although most of the options
+    have default values which kick in if no configuration is provided.
+    Also, the additional arguments override the values in the configuration
+    file.
+    """
+    params = self._configure(configurationFile)
+    
+    # override configuration parameters with specified arguments
+    if IP is not None: params.IP = IP
+    if fake is not None: params.fake = fake
+    if N is not None: params.N = N
+    
+    # if ROOT is not available, we don't plot anything
+    try: ROOT
+    except NameError: self.drawWaveforms = False
+    
+    self.scope = TDS3054Ctalker(params.IP, connect=not params.fake)
     self.readerState = ReaderState()
     self.readerState.chimney = chimney
-    self.readerState.N = N
-    self.setQuiet(quiet)
-    self.setFake(fake)
+    self.readerState.N = params.N
+    self.setQuiet(True) # this will be one day removed
+    self.setFake(params.fake)
     self.canvas = None
+    self.timers = {
+      'readout': StopWatch(startNow=False),
+      'setup'  : StopWatch(startNow=False),
+      'channel': StopWatch(startNow=False),
+      'writing': StopWatch(startNow=False),
+      } # timers
   # __init__()
+  
+  
+  def _configure(self, configurationFilePath):
+    """Reads a configuration file and sets values accordingly.
+    
+    See the following code (starting at "=== BEGIN CONFIGURATION PARSING ==="
+    below) for the "documentation" of the file format.
+    
+    Where configuration values directly pertain class attributes, those
+    attributes are directly set. In the other cases, configuration values are
+    extracted and stored in an unfeatured object and returned to the caller for
+    processing.
+    """
+    from configparser import SafeConfigParser, NoSectionError, NoOptionError
+    configFile = SafeConfigParser()
+    configFile.read(configurationFilePath)
+    
+    class ConfigParams: pass
+    localParams = ConfigParams()
+    
+    class OptionDefault:
+      def __init__(self, config, section = None):
+        self.config = config
+        self.section = section
+      def pickSection(self, section): self.section = section
+      def __call__(self, *args): return self.get(*args)
+      def get(self, option, *args):
+        return self._getDispatcher('get', option, *args)
+      def str(self, option, *args): return self.get(options, *args)
+      def int(self, option, *args):
+        return self._getDispatcher('getint', option, *args)
+      def bool(self, option, *args):
+        return self._getDispatcher('getboolean', option, *args)
+      def _getDispatcher(self, getterName, option, *args):
+        assert len(args) <= 1
+        return (self._getWithDefault if len(args) == 1 else self._get) \
+          (option, *args[:1], getterName=getterName)
+      def _get(self, option, getterName = 'get'):
+        return getattr(self.config, getterName)(self.section, option)
+      def _getWithDefault(self, option, default, getterName = 'get'):
+        if self.config is None or self.section is None: return default
+        try: return self._get(option, getterName)
+        except (NoSectionError, NoOptionError): return default
+    # class OptionDefault
+    
+    getConfig = OptionDefault(configFile)
+    
+    # === BEGIN CONFIGURATION PARSING ==========================================
+    #
+    # [Oscilloscope] section: oscilloscope parameters and settings
+    #
+    getConfig.pickSection('Oscilloscope')
+    
+    #
+    # IP address to connect to; oscilloscope will be addressed as 
+    # `TPCIP0:<IP>:instr`
+    # This parameter is mandatory.
+    # This option can be overridden in `ChimneyReader` constructor.
+    localParams.IP = getConfig('Address')
+    
+    
+    #
+    # [Reader] section: general `ChimneyReader` options
+    #
+    getConfig.pickSection('Reader')
+    
+    #
+    # Verbosity: the level of verbosity assigned to `logging` messages
+    # Default is 'INFO'
+    logLevelTag = getConfig('Verbosity', 'INFO').upper()
+    try:
+      logLevel = getattr(logging, logLevelTag)
+    except AttributeError:
+      raise ConfigurationError(
+        "Verbosity level '{}' is not supported by `logging` module."
+        .format(logLevelTag)
+        )
+    try: logLevel = int(logLevel)
+    except ValueError:
+      raise ConfigurationError(
+        "`logging.{}` is {}, not a verbosity level."
+        .format(logLevelTag, logLevel)
+        )
+    logging.debug \
+      ("Setting verbosity level to: {} ({})".format(logLevel, logLevelTag))
+    logging.getLogger().setLevel(logLevel)
+    
+    #
+    # WaveformsPerChannel: number of waveforms acquired on each position and
+    #                      channel
+    # Default is 10.
+    localParams.N = getConfig.int('WaveformsPerChannel', 10)
+    
+    #
+    # FakeMode: whether fake mode is activated.
+    #           With fake mode on, no connection to the oscilloscope is opened,
+    #           and read data is fake.
+    # Default is OFF.
+    # This option can be overridden in `ChimneyReader` constructor.
+    localParams.fake = getConfig.bool('FakeMode', False)
+    
+    #
+    # DrawWaveforms: whether to draw the waveforms just acquired
+    # Default is ON, unless ROOT module is not loaded.
+    self.drawWaveforms = getConfig.bool('DrawWaveforms', True)
+    
+    
+    #
+    # [Storage] section: parameters for moving acquired data to storage
+    #
+    getConfig.pickSection('Storage')
+    
+    #
+    # Server: the remote node to connect to for transferring data.
+    # Destination: the directory where to write in the remote node
+    # User: the user name used for logging in the remote node
+    # 
+    # The generated script transfers data with a command like:
+    #     
+    #     rsync <Source> <User>@<Server>:<Destination>/
+    #     
+    # These parameters are optional.
+    # If <Server> is not specified, no script will ever be generated.
+    # If <User> is not specified, `<User>@` part of the command is omitted.
+    # If <Destination> is not specified, `/<Destination>` part of the command is
+    # omitted.
+    localParams.storage = ConfigParams()
+    localParams.storage.server = getConfig('Server', None)
+    localParams.storage.outputDir = getConfig('Destination', None)
+    localParams.storage.user = getConfig('RemoteUser', None)
+    
+    # === END CONFIGURATION PARSING ============================================
+    
+    return localParams
+  # readConfigurationFile()
+  
   
   @staticmethod
   def usage():
@@ -205,7 +363,7 @@ class ChimneyReader:
     if N is not None: self.readerState.N = N
     if chimney is not None: self.readerState.chimney = chimney
     if self.readerState.chimney is None:
-      raise RuntimeError("\"start()... which chimney??")
+      raise RuntimeError("\"start()\"... which chimney??")
     if not self.readerState.isChimney(self.readerState.chimney):
       raise RuntimeError("%r is not a valid chimney." % self.readerState.chimney)
     
@@ -233,41 +391,50 @@ class ChimneyReader:
     # (`WaveformSourceInfo` object) to track the state internally.
     # Note that here the state that is also in `readerState` is not changed.
     
+    
     waveformInfo = self.readerState.makeWaveformSourceInfo()
     waveformInfo.setFirstIndex(N=self.readerState.N)
     self.sourceSpecs.setSourceInfo(waveformInfo)
     
+    with self.timers['readout'], self.timers['setup']:
+      self.scope.readDataSetup()
+    
     for iSet in range(self.readerState.N):
       for iChannel in range(waveformInfo.MaxChannels):
         
-        #
-        # set the state
-        #
-        channelNo = iChannel + 1
-        waveformInfo.setChannelIndex(channelNo)
-        
-        #
-        # read the data from the oscilloscope
-        #
-        logging.debug("exec readout()")
-        Time, Volt = (
-          readData(waveformInfo.channelIndex)
-          if not self.readerState.fake
-          else (
-            numpy.arange(0.0, 1.0E-5 * self.scope.WaveformSamples, 1.0E-5),
-            numpy.arange(0.0, 1.0E-6 * self.scope.WaveformSamples, 1.0E-6),
-          ))
-        
-        #
-        # save it in a file
-        #
-        waveformFilePath = self.currentWaveformFilePath()
-        self.writeWaveform(waveformFilePath, Time, Volt)
-        
+        with self.timers['readout']:
+          
+          #
+          # set the state
+          #
+          channelNo = iChannel + 1
+          waveformInfo.setChannelIndex(channelNo)
+          
+          with self.timers['channel']:
+            #
+            # read the data from the oscilloscope
+            #
+            Time, Volt = (
+              self.scope.readData(waveformInfo.channelIndex)
+              if not self.readerState.fake
+              else (
+                numpy.arange(0.0, 1.0E-5 * self.scope.WaveformSamples, 1.0E-5),
+                numpy.arange(0.0, 1.0E-6 * self.scope.WaveformSamples, 1.0E-6),
+              ))
+          # with readout
+          
+          with self.timers['writing']:
+            #
+            # save it in a file
+            #
+            waveformFilePath = self.currentWaveformFilePath()
+            self.writeWaveform(waveformFilePath, Time, Volt)
+          # with writing
+          
+        # with readout
       # for channels
       waveformInfo.increaseIndex()
     # for waveform set number
-    
   # readout()
   
   def currentWaveformFilePath(self): return self.sourceSpecs.buildPath()
@@ -331,7 +498,7 @@ class ChimneyReader:
   
   def readNext(self):
     self.readout()
-    self.plotLast()
+    if self.drawWaveforms: self.plotLast()
     self.skipToNext()
     self.printNext()
   # readNext()
@@ -372,6 +539,22 @@ class ChimneyReader:
     if n == 1: self.printNext()
     return True
   # removeLast()
+  
+  def printTimers(self, out = logging.info):
+    out("""Timing of `ChimneyReader.readout()`:
+      * setup:      {setup}
+      * readout:    {channel} (see breakout below)
+      * writing:    {writing}
+      * total:      {readout}
+      """.format(
+        **dict([
+          ( timerName, timer.toString("ms", options=('times', 'average')) )
+          for timerName, timer in self.timers.items()
+        ])
+      )
+      )
+    self.scope.printTimers(out)
+  # printTimers()
   
   def setupSourceSpecs(self):
     sourceInfo = drawWaveforms.WaveformSourceInfo(
