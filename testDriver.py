@@ -367,15 +367,13 @@ class ChimneyReader:
     if not self.readerState.isChimney(self.readerState.chimney):
       raise RuntimeError("%r is not a valid chimney." % self.readerState.chimney)
     
-    self.readerState.cableTag = ChimneyReader.CableTags[self.readerState.chimney[:2].upper()]
-    self.readerState.cableNo = self.MaxCable
-    self.readerState.position = self.MinPosition
+    ChimneyReader.resetReaderState(readerState=self.readerState)
     
     self.sourceSpecs = self.setupSourceSpecs()
     
     # here we assume that (1) `waveformInfo` is complete enough for the
     # directory name and (2) that name is common to all the files
-    tempDir = self.tempDirName(self.sourceSpecs.sourceInfo)
+    tempDir = ChimneyReader.tempDirName(self.sourceSpecs.sourceInfo)
     try: os.makedirs(tempDir)
     except os.error: pass # it exists, which is actually good
     logging.info("Output for this chimney will be written into: '{}'".format(tempDir))
@@ -540,6 +538,193 @@ class ChimneyReader:
     return True
   # removeLast()
   
+  def verify(self, outputDir = None, thoroughness = 1):
+    """Scans the output directory finding if data files are missing or spurious.
+    
+    Only CSV files (ending in '.csv') are considered.
+    
+    Thoroughness level:
+    - 0: check that the number of CSV files in the output directory is the right
+         one (5760)
+    - 1: check that there are no missing files
+    - 2: check that there are no spurious files
+    - 3: check that all the files have the expected number of lines each
+    - 4: check that all the files are fully parseable
+    """
+    
+    if self.readerState.chimney is None:
+      logging.error("No chimney being parsed.")
+      return False
+    #
+    # expected files
+    #
+    # we run though all expected reader states in a local loop:
+    readerState = ChimneyReader.resetReaderState \
+      (chimney=self.readerState.chimney, N=self.readerState.N)
+    sourceSpecs = self.makeSourceSpecs(readerState)
+    
+    if not outputDir:
+      outputDir = ChimneyReader.tempDirName(sourceSpecs.sourceInfo)
+    expectedFiles = set()
+    while True:
+      positionFiles = sourceSpecs.allPositionSources(readerState.N)
+      expectedFiles.update(positionFiles)
+      
+      if not ChimneyReader.incrementReaderState(readerState): break
+      sourceSpecs.sourceInfo.connection = readerState.cable()
+      sourceSpecs.sourceInfo.setPosition(readerState.position)
+    # while
+    logging.debug("Expected {nFiles} files in '{outputDir}'"
+      .format(nFiles=len(expectedFiles), outputDir=outputDir)
+      )
+    
+    #
+    # detected files
+    #
+    if not os.path.isdir(outputDir):
+      logging.error(
+        "Expected {nFiles} files and, well, '{outputDir}' is not even a directory."
+        .format(nFiles=len(expectedFiles), outputDir=outputDir)
+        )
+      return False
+    # if
+    CSVfiles = set()
+    for file_ in os.listdir(outputDir):
+      file_ = os.path.join(outputDir, file_)
+      if not os.path.isfile(file_) or (os.path.splitext(file_)[-1] != '.csv'):
+        continue
+      CSVfiles.add(file_)
+    # for
+    logging.debug("Found {nFiles} CSV files in '{outputDir}'"
+      .format(nFiles=len(CSVfiles), outputDir=outputDir)
+      )
+    
+    success = True
+    
+    #
+    # thoroughness >= 0: the right number of files
+    # 
+    
+    if thoroughness == 0:
+      if len(CSVfiles) == len(expectedFiles): return True
+      else:
+        logging.error(
+          "Expected {nExpected} files in '{outputDir}', {nFound} found."
+          .format(nExpected=len(expectedFiles), nFound=len(CSVfiles), outputDir=outputDir)
+          )
+        success = False
+      # if ... else
+    # if thoroughness == 0
+    
+    #
+    # thoroughness >= 1: all needed files are there
+    # 
+    if thoroughness >= 1:
+      missingFiles = expectedFiles - CSVfiles
+      if missingFiles:
+        logging.info("{nMissing} files missing:\n".format(nMissing=len(missingFiles))
+          + "\n".join([ "[{}] '{}'".format(*fileInfo) for fileInfo in enumerate(sorted(missingFiles))])
+          )
+        logging.error("{nMissing}/{nExpected} files missing!".format(
+          nMissing=len(missingFiles), nExpected=len(expectedFiles)
+          ))
+        success = False
+      # if missing
+    # if thoroughness >= 1
+      
+    #
+    # thoroughness >= 2: no spurious CSV files are there
+    # 
+    if thoroughness >= 2:
+      spuriousFiles = CSVfiles - expectedFiles
+      if spuriousFiles:
+        logging.info("{nSpurious} extra CSV files:\n".format(nSpurious=len(spuriousFiles))
+          + "\n".join([ "[{}] '{}'".format(*fileInfo) for fileInfo in enumerate(sorted(spuriousFiles))])
+          )
+        logging.error("{nSpurious} spurious CSV files!".format(
+          nSpurious=len(spuriousFiles)
+          ))
+        success = False
+      # if missing
+    # if thoroughness >= 2
+    
+    dataFiles = CSVfiles & expectedFiles
+    
+    # 
+    # thoroughness >= 3
+    # 
+    if thoroughness >= 3:
+      nExpectedPoints = self.scope.WaveformSamples
+      for fileName in dataFiles:
+        logging.debug("Checking: '{}'".format(fileName))
+        unparseable = None
+        nLines = 0
+        with open(fileName, 'r') as f:
+          for iLine, line in enumerate(f):
+            # skip empty lines
+            line = line.strip()
+            if not line: continue
+          
+            # skip comments
+            if line[0] == '#': continue
+            
+            nLines += 1
+            # 
+            # thoroughness >= 3: each file has the correct number of lines
+            # 
+            pass # just counting
+            
+            #
+            # thoroughness >= 4: all files are parseable
+            # 
+            if thoroughness >= 4:
+              if unparseable is None:
+                try:
+                  # try converting everything
+                  tokens = map(float, map(str.strip, line.strip().split(",")))
+                except ValueError:
+                  logging.debug(
+                    "Line '{fileName}':{line} is not parseable: '{content}'".format(
+                    fileName=fileName, line=iLine, content=line
+                    ))
+                  unparseable = iLine
+              if unparseable is None:
+                if len(tokens) != 2:
+                  logging.debug(
+                    "Line '{fileName}':{line} has {nTokens} tokens: '{content}'".format(
+                    fileName=fileName, line=iLine, nTokens=len(tokens), content=line,
+                    ))
+                  unparseable = iLine
+                # if wrong number of tokens
+            # if thoroughness >= 4:
+          # for
+        # with file
+        
+        # 
+        # thoroughness >= 3: each file has the correct number of lines
+        # 
+        if nLines != nExpectedPoints:
+          logging.error("File '{}' has {} lines, {} expected"
+            .format(fileName, nLines, nExpectedPoints)
+            )
+          success = False
+        # if
+        if unparseable is not None: # error message has already been printed
+          success = False
+      # for files
+    # if thoroughness >= 3
+      
+    
+    #
+    # thoroughness >= 5: ???
+    # 
+    if thoroughness >= 5:
+      logging.warning("Chimney.verify(thoroughness=5) not implemented yet.")
+    
+    return success
+  # verify()
+  
+  
   def printTimers(self, out = logging.info):
     out("""Timing of `ChimneyReader.readout()`:
       * setup:      {setup}
@@ -557,22 +742,56 @@ class ChimneyReader:
   # printTimers()
   
   def setupSourceSpecs(self):
+    return ChimneyReader.makeSourceSpecs(self.readerState)
+  
+  @staticmethod
+  def tempDirName(sourceInfo):
+    return sourceInfo.formatString(ChimneyReader.WaveformDirectory) + "_inprogress"
+  
+  @staticmethod
+  def resetReaderState(readerState = None, chimney = None, N = None):
+    if readerState is None:
+      assert chimney is not None
+      assert N is not None
+      readerState = ReaderState()
+    if chimney is not None: readerState.chimney = chimney
+    if N is not None: readerState.N = N
+    readerState.cableTag = ChimneyReader.CableTags[readerState.chimney[:2].upper()]
+    readerState.cableNo = ChimneyReader.MaxCable
+    readerState.position = ChimneyReader.MinPosition
+    return readerState
+  # resetReaderState()
+  
+  
+  @staticmethod
+  def makeSourceSpecs(readerState):
     sourceInfo = drawWaveforms.WaveformSourceInfo(
-      chimney=self.readerState.chimney, connection=self.readerState.cable(),
-      position=self.readerState.position, channelIndex=1,
-      index=self.readerState.firstIndex()
+      chimney=readerState.chimney, connection=readerState.cable(),
+      position=readerState.position, channelIndex=1,
+      index=readerState.firstIndex()
       )
     sourceInfo.updateChannel()
     sourceDir = sourceInfo.formatString(ChimneyReader.WaveformDirectory)
     return drawWaveforms.WaveformSourceFilePath(
       sourceInfo,
       filePattern=ChimneyReader.WaveformFilePattern,
-      sourceDir=self.tempDirName(sourceInfo),
+      sourceDir=ChimneyReader.tempDirName(sourceInfo),
       )
-  # setupSourceSpecs()
+  # makeSourceSpecs()
   
-  def tempDirName(self, sourceInfo):
-    return sourceInfo.formatString(ChimneyReader.WaveformDirectory) + "_inprogress"
+  @staticmethod
+  def incrementReaderState(readerState, n = 1):
+    if readerState.position == ChimneyReader.MaxPosition:
+      readerState.position = ChimneyReader.MinPosition
+      if readerState.cableNo == ChimneyReader.MinCable:
+        readerState.cableNo = None
+        readerState.position = None
+        return False
+      else: readerState.cableNo -= 1
+    else: readerState.position += 1
+    return (n <= 1) or ChimneyReader.incrementReaderState(readerState, n-1)
+  # incrementReaderState()
+  
   
 # class ChimneyReader
 
