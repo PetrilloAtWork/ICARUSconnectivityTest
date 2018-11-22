@@ -12,6 +12,8 @@ So far, only python environment stuff is usable interactively
 (see `ChimneyReader`), but running from python is still quite better.
 """
 
+__version__ = "2.0"
+
 ################################################################################
 ### default settings
 
@@ -153,6 +155,9 @@ class ChimneyReader:
   WaveformFilePattern = drawWaveforms.WaveformSourceFilePath.StandardPattern
   WaveformDirectory = drawWaveforms.WaveformSourceFilePath.StandardDirectory
   
+  DefaultVerificationThoroughness = 4 # see `verify()`
+  
+  
   class ConfigurationError(RuntimeError):
     def __init__(self, msg, *args, **kargs):
       RuntimeError.__init__(self, "Configuration error: " + msg, *args, **kargs)
@@ -187,6 +192,7 @@ class ChimneyReader:
     self.readerState.N = params.N
     self.setQuiet(True) # this will be one day removed
     self.setFake(params.fake)
+    self.storageParams = params.storage
     self.canvas = None
     self.timers = {
       'readout': StopWatch(startNow=False),
@@ -329,7 +335,7 @@ class ChimneyReader:
     # === END CONFIGURATION PARSING ============================================
     
     return localParams
-  # readConfigurationFile()
+  # _configure()
   
   
   @staticmethod
@@ -395,7 +401,7 @@ class ChimneyReader:
     self.sourceSpecs.setSourceInfo(waveformInfo)
     
     with self.timers['readout'], self.timers['setup']:
-      self.scope.readDataSetup()
+      if not self.readerState.fake: self.scope.readDataSetup()
     
     for iSet in range(self.readerState.N):
       for iChannel in range(waveformInfo.MaxChannels):
@@ -538,10 +544,21 @@ class ChimneyReader:
     return True
   # removeLast()
   
-  def verify(self, outputDir = None, thoroughness = 1):
+  def verify(self,
+   outputDir = None,
+   thoroughness = DefaultVerificationThoroughness,
+   finalize = True
+   ):
     """Scans the output directory finding if data files are missing or spurious.
     
     Only CSV files (ending in '.csv') are considered.
+    The verification is attempted on the temporary output directory; if the
+    verification succeeds and `finalize` is not `False`, the output directory
+    is then renamed from temporary to output directory.
+    If that is not found, the final output directory is tried instead, and no
+    renaming takes place in any case.
+    Also if the `outputDir` is explicitly specified, it is not going to be
+    renamed in any case.
     
     Thoroughness level:
     - 0: check that the number of CSV files in the output directory is the right
@@ -555,25 +572,23 @@ class ChimneyReader:
     if self.readerState.chimney is None:
       logging.error("No chimney being parsed.")
       return False
+    
     #
     # expected files
     #
-    # we run though all expected reader states in a local loop:
-    readerState = ChimneyReader.resetReaderState \
-      (chimney=self.readerState.chimney, N=self.readerState.N)
-    sourceSpecs = self.makeSourceSpecs(readerState)
+    if outputDir:
+      allowOutputDirRenaming = False
+    else:
+      outputDir = ChimneyReader.tempDirName(self.sourceSpecs.sourceInfo)
+      if os.path.isdir(outputDir):
+        allowOutputDirRenaming = finalize
+      else:
+        outputDir = ChimneyReader.outputDirName(self.sourceSpecs.sourceInfo)
+        allowOutputDirRenaming = False
+    # if autodetect output dir
     
-    if not outputDir:
-      outputDir = ChimneyReader.tempDirName(sourceSpecs.sourceInfo)
-    expectedFiles = set()
-    while True:
-      positionFiles = sourceSpecs.allPositionSources(readerState.N)
-      expectedFiles.update(positionFiles)
-      
-      if not ChimneyReader.incrementReaderState(readerState): break
-      sourceSpecs.sourceInfo.connection = readerState.cable()
-      sourceSpecs.sourceInfo.setPosition(readerState.position)
-    # while
+    expectedFiles = set(self.expectedFiles(sourceDir=outputDir))
+    
     logging.debug("Expected {nFiles} files in '{outputDir}'"
       .format(nFiles=len(expectedFiles), outputDir=outputDir)
       )
@@ -654,9 +669,11 @@ class ChimneyReader:
     # thoroughness >= 3
     # 
     if thoroughness >= 3:
+      watch = StopWatch()
       nExpectedPoints = self.scope.WaveformSamples
-      for fileName in dataFiles:
-        logging.debug("Checking: '{}'".format(fileName))
+      for iFile, fileName in enumerate(dataFiles):
+        logging.info \
+          ("[{}/{}] Checking: '{}'".format(iFile + 1, len(dataFiles), fileName))
         unparseable = None
         nLines = 0
         with open(fileName, 'r') as f:
@@ -711,7 +728,8 @@ class ChimneyReader:
         # if
         if unparseable is not None: # error message has already been printed
           success = False
-      # for files
+      else: iFile += 1 # for files
+      logging.info("{} files checked in {}.".format(iFile, watch.toString()))
     # if thoroughness >= 3
       
     
@@ -721,8 +739,140 @@ class ChimneyReader:
     if thoroughness >= 5:
       logging.warning("Chimney.verify(thoroughness=5) not implemented yet.")
     
+    if success and finalize:
+      logging.debug("Verification successful: proceeding with finalization.")
+      self._finalizeOutputFiles(self.sourceSpecs.sourceInfo, outputDir=outputDir)
+      self.generateInfoFile(scriptDir=outputDir)
+      if allowOutputDirRenaming:
+        self._finalizeOutputDir(self.sourceSpecs.sourceInfo, outputDir=outputDir)
+    #
+    
     return success
   # verify()
+  
+  
+  def infoFilePath(self, scriptDir = None):
+    
+    if scriptDir is None:
+      scriptDir = ChimneyReader.outputDirName(self.sourceSpecs.sourceInfo)
+    
+    infoFileName = "INFO-{}.txt".format(os.path.basename(scriptDir))
+    
+    return os.path.join(scriptDir, infoFileName)
+    
+  # infoFilePath()
+  
+  
+  def generateInfoFile(self, scriptDir = None):
+    
+    import time
+    
+    infoFilePath = self.infoFilePath(scriptDir=scriptDir)
+    logging.info("INFO file: '{}'".format(infoFilePath))
+    
+    with open(infoFilePath, 'w') as f:
+      print >>f, """{softwareName} version {softwareVersion}
+---------------------------------------
+Chimney:      {chimney}
+Date:         {date}
+Oscilloscope: {scopeName}
+  IP:         {scopeAddress}
+From host:    {hostname}
+     user:    {username}""".format(
+      softwareName=__name__,
+      softwareVersion=__version__,
+      chimney=self.sourceSpecs.sourceInfo.chimney,
+      date=time.ctime(),
+      scopeName=("(fake)" if self.readerState.fake else self.scope.identify()),
+      scopeAddress=self.scope.address,
+      hostname=ChimneyReader.getHostName(),
+      hostIP=ChimneyReader.getHostIP(),
+      username=ChimneyReader.getUserName(),
+      )
+    return infoFilePath
+  # generateInfoFile()
+  
+  
+  def generateArchivalScript(self, scriptDir = None, sourceDir = None):
+    """Creates a script to be run to transfer all data.
+    
+    Run `verify()` first!
+    If `verified` is set to `False`, a script will be generated to transfer the
+    unverified files. Please fix the files instead!
+    """
+    
+    if self.readerState.chimney is None:
+      logging.error("No chimney being parsed.")
+      return False
+    
+    if sourceDir is None:
+      sourceDir = ChimneyReader.outputDirName(self.sourceSpecs.sourceInfo)
+      if not os.path.isdir(sourceDir):
+        logging.error(
+          "Cowardly refusing to write a transfer script for a directory that does not exist yet ('{}')."
+          .format(sourceDir)
+          )
+        return None
+    # if
+    
+    if scriptDir is None: scriptDir = sourceDir
+    scriptName = "archive_{}.sh".format(os.path.basename(sourceDir))
+    scriptPath = os.path.join(scriptDir, scriptName)
+    logging.info("Archive script: '{}'".format(scriptPath))
+    
+    #
+    # collect the expected files
+    #
+    expectedFiles = self.expectedFiles(sourceDir=sourceDir)
+    
+    #
+    # write the script
+    #
+    infoFilePath = self.infoFilePath(scriptDir=scriptDir)
+    ScriptHeader = """#!/usr/bin/env bash
+#
+# Script to archive all validated CSV data files.
+# It can be rested ("dry run") by setting the environment variable `FAKE` to non-zero value.
+#
+
+[[ -n "${{FAKE//0}}" ]] || unset FAKE
+
+#
+# remote server settings
+#
+declare -r DestServer="{DestServer}"
+declare -r DestDir="{DestDir}"
+declare -r User="{User}"
+
+#
+# source settings
+#
+declare -r SourceBaseDir="{SourceBaseDir}"
+
+#
+# copy!
+#
+rsync ${{FAKE:+'-n'}} -avz --chmod='ug+rw' --progress --files-from='-' "$SourceBaseDir" "${{User:+"${{User}}@"}}${{DestServer}}:${{DestDir:+"${{DestDir}}/"}}" <<EOL
+{infoFile}""".format(
+      DestServer=self.storageParams.server,
+      DestDir=self.storageParams.outputDir,
+      User=self.storageParams.user,
+      SourceBaseDir=os.path.dirname(os.path.abspath(sourceDir)),
+      infoFile=infoFilePath,
+      )
+    ScriptFooter = """EOL
+"""
+    with open(scriptPath, 'w') as f:
+      print >>f, ScriptHeader
+      for sourceFile in expectedFiles:
+        print >>f, sourceFile
+      print >>f, ScriptFooter
+    # with
+    import stat
+    os.chmod(scriptPath, stat.S_IRWXU | stat.S_IXGRP | stat.S_IXOTH | stat.S_IRGRP | stat.S_IROTH)
+
+    return scriptPath
+  # generateArchivalScript()
   
   
   def printTimers(self, out = logging.info):
@@ -741,12 +891,74 @@ class ChimneyReader:
     self.scope.printTimers(out)
   # printTimers()
   
+  
   def setupSourceSpecs(self):
     return ChimneyReader.makeSourceSpecs(self.readerState)
   
+  
+  def expectedFiles(self, sourceDir = None):
+    """Returns a list of all expected CSV files, sorted."""
+    
+    # we run though all expected reader states in a local loop:
+    readerState = ChimneyReader.resetReaderState \
+      (chimney=self.readerState.chimney, N=self.readerState.N)
+    sourceSpecs = self.makeSourceSpecs(readerState, sourceDir=sourceDir)
+    
+    expectedFiles = []
+    while True:
+      positionFiles = sourceSpecs.allPositionSources(readerState.N)
+      expectedFiles.extend(positionFiles)
+      
+      if not ChimneyReader.incrementReaderState(readerState): break
+      sourceSpecs.sourceInfo.connection = readerState.cable()
+      sourceSpecs.sourceInfo.setPosition(readerState.position)
+    # while
+    return expectedFiles
+  # expectedFiles()
+  
+  
+  def _finalizeOutputFiles(self, sourceInfo, outputDir = None):
+    tempDir = outputDir if outputDir is not None \
+      else ChimneyReader.tempDirName(sourceInfo)
+    
+    expectedFiles = self.expectedFiles(sourceDir=tempDir)
+    nChanged = 0
+    import stat
+    for file_ in expectedFiles:
+      try:
+        os.chmod(file_, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+        nChanged += 1
+      except OSError: pass
+    # for
+    logging.debug("{}/{} output files made read-only."
+      .format(nChanged, len(expectedFiles)))
+    return nChanged
+  # _finalizeOutputFiles()
+  
+  
+  def _finalizeOutputDir(self, sourceInfo, outputDir = None):
+    tempDir = outputDir if outputDir is not None \
+      else ChimneyReader.tempDirName(sourceInfo)
+    outDir = ChimneyReader.outputDirName(sourceInfo)
+    
+    if os.path.isdir(tempDir):
+      os.rename(tempDir, outDir)
+      logging.info("Temporary directory '{oldDir}' renamed into '{newDir}'"
+        .format(oldDir=tempDir, newDir=outDir))
+    # if
+  # _finalizeOutputDir()
+  
+  
+  @staticmethod
+  def outputDirName(sourceInfo, temporary = False):
+    d = sourceInfo.formatString(ChimneyReader.WaveformDirectory)
+    if temporary: d += "_inprogress"
+    return d
+  # outputDirName()
+  
   @staticmethod
   def tempDirName(sourceInfo):
-    return sourceInfo.formatString(ChimneyReader.WaveformDirectory) + "_inprogress"
+    return ChimneyReader.outputDirName(sourceInfo, temporary=True)
   
   @staticmethod
   def resetReaderState(readerState = None, chimney = None, N = None):
@@ -764,18 +976,18 @@ class ChimneyReader:
   
   
   @staticmethod
-  def makeSourceSpecs(readerState):
+  def makeSourceSpecs(readerState, sourceDir = None):
     sourceInfo = drawWaveforms.WaveformSourceInfo(
       chimney=readerState.chimney, connection=readerState.cable(),
       position=readerState.position, channelIndex=1,
       index=readerState.firstIndex()
       )
     sourceInfo.updateChannel()
-    sourceDir = sourceInfo.formatString(ChimneyReader.WaveformDirectory)
     return drawWaveforms.WaveformSourceFilePath(
       sourceInfo,
       filePattern=ChimneyReader.WaveformFilePattern,
-      sourceDir=ChimneyReader.tempDirName(sourceInfo),
+      sourceDir=
+        (sourceDir if sourceDir is not None else ChimneyReader.tempDirName(sourceInfo)),
       )
   # makeSourceSpecs()
   
@@ -792,6 +1004,36 @@ class ChimneyReader:
     return (n <= 1) or ChimneyReader.incrementReaderState(readerState, n-1)
   # incrementReaderState()
   
+  
+  @staticmethod
+  def getHostName():
+    import socket, os
+    try: return socket.getfqdn()
+    except: pass
+    try: return os.environ.get('HOSTNAME')
+    except KeyError: pass
+    return "<unknown>"
+  # getHostName()
+  
+  @staticmethod
+  def getHostIP():
+    import socket
+    try: return socket.gethostbyname(socket.getfqdn())
+    except: pass
+    try: return socket.gethostbyname(socket.gethostname())
+    except: pass
+    return "<unknown>"
+  # getHostIP()
+  
+  @staticmethod
+  def getUserName():
+    import getpass
+    try: return getpass.getuser()
+    except: pass
+    try: return os.environ.get('USER')
+    except KeyError: pass
+    return "<unknown>"
+  # getUserName()
   
 # class ChimneyReader
 

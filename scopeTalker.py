@@ -31,7 +31,8 @@ class ScopeTalker:
   """
   def __init__(self, address, manager = None, connect = True, retries = 5):
     self.manager = manager if manager else visa.ResourceManager()
-    self.resourceID = 'TCPIP0::%s::INSTR' % address
+    self.address = address
+    self.resourceID = 'TCPIP0::%s::INSTR' % self.address
     self.maxRetry = retries
     self.scope = self.connect() if connect else None
   # __init__()
@@ -103,6 +104,8 @@ class ScopeTalker:
   
   def read_raw(self):
     return self.retry("read_raw")
+  
+  def identify(self): return self.query("*IDN?")
   
   ###
   ### internal junk

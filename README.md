@@ -47,6 +47,8 @@ The reading procedure is tedious enough, and `ChimneyReader` is an attempt to ma
 Streamlined data acquisition session with `ChimneyReader`
 ----------------------------------------------------------
 
+**This procedure needs to be updated with version 2.0 of the software!**
+
 `ChimneyReader` is a bookkeeping object that drives through the test.
 The operator interacts with it by creating an instance of it and invoking its callables directly from the python interpreter shell.
 An example of the start of a data acquisition on chimney `WW04`:
@@ -93,15 +95,48 @@ Some `ChimneyReader` useful callables:
 * `lastList()`: list (like in "returns a python list") of all data files expected to have been created in the last data acquisition
 * `plotLast()`: produces plots of the last connection/position (it's also automatically done by `next()`)
 
-from testDriver import *  # make everything in `testDriver` promptly ready
-loadScopeReader("192.168.230.29")
-reader = ChimneyReader()  # `reader` will keep track of where we are
-reader.start('WW04')      # declare we start a new chimney (can be done in constructor too)
-reader.next()             # take the first connection + position
-reader.next()             # take the second connection + position
-reader.next()             # take the third connection + position; let's assume we did a mistake...
-reader.removeLast()       # remove the last connection + position, prepare to take it again
-reader.next()             # take the third connection + position again
+
+Verification and archival of data files
+----------------------------------------
+
+Once all the channels of a chimney have been recorded, the data needs to be
+transferred to a publicly available area.
+The following two steps are strongly recommended:
+
+1. verify that all the files are effectively there, and that there is no
+   corruption in the data
+2. archive the data
+
+The `ChimneyReader` object provides a function `verify()` to perform the
+verification at a good degree, up to verifying that each file is legible and
+with the right format and amount of information.
+The object does _not_ provide a service to archive the files, mostly because
+that is a job that should happen asynchronously. It _does_ provide a script that
+can be run to perform the archival, though. The standard procedure is to
+generate the script, and then run it on a different shell. Do this only after
+verification has succeeded!
+    
+    reader.verify()
+    reader.generateArchivalScript()
+    
+The first step, verification, can take 5 minutes on a machine with a _fast_
+disk. This should be less time than it is needed to wrap up and set up the next
+chimney, so that should be fine. But if the verification takes too long, it can
+be simplified by decreasing its thoroughness, that is literally by running
+`reader.verify(thoroughness=3)` (which does not try to see if it is numbers that
+are stored into the CSV files) or `reader.verify(thoroughness=2)` (which does
+not even check that the files have the expected number of points, and that is
+fast beyond any excuse).
+If the verification succeeds, `verify()` will rename the output directory
+marking it as not "in progress" any more, and making the CSV files read-only.
+It will also create a small text file with some metadata of the acquisition.
+It is on the renamed directory that `generateArchivalScript()` works. The script
+always attempts to archive all the (5760) files that it knows _should_ be
+there, and if some of them are not there, the ones present will be archived,
+the others will produce error messages, and the script will exit with a non-zero
+status. Rerunning the script will not copy again the files that were already
+successfully archived.
+
 
 
 Bugs
