@@ -3,6 +3,8 @@ This is a collection of scripts used at one time or another for the ICARUS conne
 Setup and requirements
 -----------------------
 
+The scripts have been tested with python version 2.7.15.
+
 The scripts typically use National Instrument VISA and CERN ROOT.
 Both should be available under python _at the same time_.
 This might require a compilation of CERN ROOT from scratch.
@@ -47,43 +49,77 @@ The reading procedure is tedious enough, and `ChimneyReader` is an attempt to ma
 Streamlined data acquisition session with `ChimneyReader`
 ----------------------------------------------------------
 
-**This procedure needs to be updated with version 2.0 of the software!**
-
 `ChimneyReader` is a bookkeeping object that drives through the test.
 The operator interacts with it by creating an instance of it and invoking its callables directly from the python interpreter shell.
+From version 2, this object _requires_ a configuration file (or more).
+
 An example of the start of a data acquisition on chimney `WW04`:
 ```python
-from testDriver import *  # make everything in `testDriver` promptly ready
-reader = ChimneyReader()  # `reader` will keep track of where we are
-reader.setFake()          # this is for an example only; omit this for real data acquisition
-reader.start('WW04')      # declare we start a new chimney (can be done in constructor too)
-reader.next()             # take the first connection + position
-reader.next()             # take the second connection + position
-reader.next()             # take the third connection + position; let's assume we did a mistake...
-reader.removeLast()       # remove the last connection + position, prepare to take it again
-reader.next()             # take the third connection + position again
+from testDriver import ChimneyReader # make `ChimneyReader` available
+reader = ChimneyReader(              # create a `ChimneyReader` object
+  [                                  # configured with two configuration files:
+    "TDS3054C-base.ini",             # a basic setting one,
+    "TDS3054C-192.168.230.29.ini",   # and one overriding the `scope IP address
+  ],
+  fake=True                          # for this example, we don't connect to the `scope
+  )
+reader.start("EW01")                 # declare we start a new chimney (can be done in constructor too)
+reader.next()                        # take the first connection + position
+reader.next()                        # take the second connection + position
+reader.next()                        # take the third connection + position; let's assume we did a mistake...
+reader.removeLast()                  # remove the last connection + position, prepare to take it again
+reader.next()                        # take the third connection + position again
 #...
 ```
 This is the output of the start of the sequence above:
-```
->>> from testDriver import *  # make everything in `testDriver` promptly ready
-Imported 'scope_readerB71' (as 'scope_reader')
-Use `loadScopeReader(<IP address>)` to load a different one.
-
->>> reader = ChimneyReader()  # `reader` will keep track of where we are
-
->>> reader.setFake()          # this is for an example only; omit this for real data acquisition
-
->>> reader.start('WW04')      # declare we start a new chimney (can be done in constructor too)
-readNext(): Chimney WW04 connection S18 position 1 => quickAnalysis(10, 'CHIMNEY_WW04', 'CONN_S18', 'POS_1')
-
->>> reader.next()             # take the first connection + position
-exec quickAnalysis(10, 'CHIMNEY_WW04', 'CONN_S18', 'POS_1')
-Can't plot data from 'temp_folder71/waveform_CH1_CHIMNEY_WW04_CONN_S18_POS_1_1.csv': file not found.
-[...]
-Can't plot data from 'temp_folder71/waveform_CH4_CHIMNEY_WW04_CONN_S18_POS_1_10.csv': file not found.
-next(): Chimney WW04 connection S18 position 2 => quickAnalysis(10, 'CHIMNEY_WW04', 'CONN_S18', 'POS_2')
-```
+    
+    >>> from testDriver import ChimneyReader # make `ChimneyReader` available
+    >>> reader = ChimneyReader(              # create a `ChimneyReader` object
+    ...   [                                  # configured with two configuration files:
+    ...     "TDS3054C-base.ini",             # a basic setting one,
+    ...     "TDS3054C-192.168.230.29.ini",   # and one overriding the `scope IP address
+    ...   ],
+    ...   fake=True                          # for this example, we don't connect to the `scope
+    ...   )
+    >>> reader.start("EW01")                 # declare we start a new chimney (can be done in constructor too)
+    INFO:root:Output for this chimney will be written into: 'CHIMNEY_EW01_inprogress'
+    INFO:root:next(): Chimney EW01 connection S18 position 1
+    >>> reader.next()                        # take the first connection + position
+    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH1_CHIMNEY_EW01_CONN_S18_POS_1_1.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH2_CHIMNEY_EW01_CONN_S18_POS_1_1.csv'
+    [...]
+    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH3_CHIMNEY_EW01_CONN_S18_POS_1_10.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH4_CHIMNEY_EW01_CONN_S18_POS_1_10.csv'
+    INFO:root:next(): Chimney EW01 connection S18 position 2
+    True
+    >>> reader.next()                        # take the second connection + position
+    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH1_CHIMNEY_EW01_CONN_S18_POS_2_11.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH2_CHIMNEY_EW01_CONN_S18_POS_2_11.csv'
+    [...]
+    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH4_CHIMNEY_EW01_CONN_S18_POS_2_20.csv'
+    INFO:root:next(): Chimney EW01 connection S18 position 3
+    True
+    >>> reader.next()                        # take the third connection + position; let's assume we did a mistake...
+    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH1_CHIMNEY_EW01_CONN_S18_POS_3_21.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH2_CHIMNEY_EW01_CONN_S18_POS_3_21.csv'
+    [...]
+    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH3_CHIMNEY_EW01_CONN_S18_POS_3_30.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH4_CHIMNEY_EW01_CONN_S18_POS_3_30.csv'
+    INFO:root:next(): Chimney EW01 connection S18 position 4
+    True
+    >>> reader.removeLast()                  # remove the last connection + position, prepare to take it again
+    Remove 40 files from Chimney EW01 connection S18 position 3? [Y/N] y
+    INFO:root:next(): Chimney EW01 connection S18 position 3
+    
+    True
+    >>> reader.next();                       # take the third connection + position again
+    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH1_CHIMNEY_EW01_CONN_S18_POS_3_21.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH2_CHIMNEY_EW01_CONN_S18_POS_3_21.csv'
+    [...]
+    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH3_CHIMNEY_EW01_CONN_S18_POS_3_30.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH4_CHIMNEY_EW01_CONN_S18_POS_3_30.csv'
+    INFO:root:next(): Chimney EW01 connection S18 position 4
+    
 Note that both `start()` and `next()` print information about which connection and position will be tested the next time `next()` is invoked.
 Some `ChimneyReader` useful callables:
 
@@ -92,8 +128,11 @@ Some `ChimneyReader` useful callables:
 * `printNext()`: prints which connection/position the next call to `next()` is going to process
 * `removeLast()`: removes the last acquired connection/position, and sets up to aquire it again with `next()`
 * `skipToNext()`, `skipToPrev()`: prepare the next position, on the previous one, to be acquired with `next()`
+* `jumpTo(cable, position)`: jump directly to the specified cable and position
 * `lastList()`: list (like in "returns a python list") of all data files expected to have been created in the last data acquisition
 * `plotLast()`: produces plots of the last connection/position (it's also automatically done by `next()`)
+* `verify()`: verifies the acquired data
+* `generateArchivalScript()`: generates the script to archive the acquired data
 
 
 Verification and archival of data files
@@ -145,7 +184,7 @@ Bugs
 `ChimneyReader`
 ----------------
 
-Navigation close to the ends of the chimney connections (first connection and last position, last connection and first position) is not well protected and trouble will occur when trying to go back after finishing (e.g. if there was an error on the last position of the first connection).
+_None known so far._
 
 
 

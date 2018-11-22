@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
 #
-# from testDriver import * ; reader = ChimneyReader("EW00", fake=True) ; reader.start()
+# from testDriver import * ; reader = ChimneyReader("TDS3054C-192.168.230.29.ini", fake=True) ; reader.start("EW00")
 # reader.next()
-# 
+#
 
 __doc__ = """
 Interactive driver for the scope reader.
@@ -131,6 +131,15 @@ class ReaderState:
       )
   # makeWaveformSourceInfo()
   
+  
+  def updateWaveformSourceInfo(self, sourceInfo):
+    """Updates a `WaveformSourceInfo` after `ReaderState` has moved to a
+    different position."""
+    sourceInfo.connection = self.cable()
+    sourceInfo.setPosition(self.position)
+  # updateWaveformSourceInfo()
+
+  
 # class ReaderState
 
 
@@ -216,7 +225,10 @@ class ChimneyReader:
     """
     from configparser import SafeConfigParser, NoSectionError, NoOptionError
     configFile = SafeConfigParser()
-    configFile.read(configurationFilePath)
+    if isinstance(configurationFilePath, (str, unicode, )):
+      configurationFilePath = [ configurationFilePath, ]
+    for fileName in configurationFilePath:
+      configFile.readfp(open(fileName, 'r'), fileName)
     
     class ConfigParams: pass
     localParams = ConfigParams()
@@ -462,12 +474,13 @@ class ChimneyReader:
   
   def printNext(self):
     if self.readerState.chimney is None:
-      print "You'd better set a chimney first."
+      logging.error("You'd better set a chimney first.")
       return False
     if self.readerState.cableNo is None or self.readerState.position is None:
-      print "No test next."
+      logging.info("Chimney sequence is complete: time to `verify()` that everything is in place.")
       return False
-    print "next(): %s" % self.readerState.stateStr()
+    logging.info("next(): {}".format(self.readerState.stateStr()))
+    return True
   # printNext()
   
   def skipToNext(self, n = 1):
@@ -480,8 +493,7 @@ class ChimneyReader:
       else: self.readerState.cableNo -= 1
     else: self.readerState.position += 1
     if (n > 1) and not self.skipToNext(n-1): return False
-    self.sourceSpecs.sourceInfo.connection = self.readerState.cable()
-    self.sourceSpecs.sourceInfo.setPosition(self.readerState.position)
+    self.readerState.updateWaveformSourceInfo(self.sourceSpecs.sourceInfo)
     return True
   # skipToNext()
   
@@ -493,18 +505,33 @@ class ChimneyReader:
         self.readerState.position = None
         return False
       else: self.readerState.cableNo += 1
-    else: self.readerState.position -= 1
+    elif self.readerState.position is not None: self.readerState.position -= 1
+    else:
+      assert self.readerState.cableNo is None
+      self.readerState.position = self.MaxPosition
+      self.readerState.cableNo = self.MinCable
     if (n > 1) and not self.skipToPrev(n-1): return False
-    self.sourceSpecs.sourceInfo.connection = self.readerState.cable()
-    self.sourceSpecs.sourceInfo.setPosition(self.readerState.position)
+    self.readerState.updateWaveformSourceInfo(self.sourceSpecs.sourceInfo)
     return True
   # skipToPrev()
+  
+  def jumpTo(self, cable = None, position = 1):
+    if (cable is not None) and ((cable > self.MaxCable) or (cable < self.MinCable)):
+      raise RuntimeError("Jump requested to the non-existing cable {}".format(cable))
+    if (position > self.MaxPosition) or (position < self.MinPosition):
+      raise RuntimeError("Jump requested to the non-existing position {}".format(position))
+    
+    if cable is not None: self.readerState.cableNo = cable
+    self.readerState.position = position
+    self.readerState.updateWaveformSourceInfo(self.sourceSpecs.sourceInfo)
+    self.printNext()
+  # jumpTo()
   
   def readNext(self):
     self.readout()
     if self.drawWaveforms: self.plotLast()
     self.skipToNext()
-    self.printNext()
+    return self.printNext()
   # readNext()
   next = readNext
   
@@ -544,21 +571,13 @@ class ChimneyReader:
     return True
   # removeLast()
   
-  def verify(self,
-   outputDir = None,
-   thoroughness = DefaultVerificationThoroughness,
-   finalize = True
-   ):
+  
+  def checkOutput \
+   (self, outputDir, thoroughness = DefaultVerificationThoroughness):
     """Scans the output directory finding if data files are missing or spurious.
     
     Only CSV files (ending in '.csv') are considered.
-    The verification is attempted on the temporary output directory; if the
-    verification succeeds and `finalize` is not `False`, the output directory
-    is then renamed from temporary to output directory.
-    If that is not found, the final output directory is tried instead, and no
-    renaming takes place in any case.
-    Also if the `outputDir` is explicitly specified, it is not going to be
-    renamed in any case.
+    The verification is attempted on the temporary output directory.
     
     Thoroughness level:
     - 0: check that the number of CSV files in the output directory is the right
@@ -569,24 +588,9 @@ class ChimneyReader:
     - 4: check that all the files are fully parseable
     """
     
-    if self.readerState.chimney is None:
-      logging.error("No chimney being parsed.")
-      return False
-    
     #
     # expected files
     #
-    if outputDir:
-      allowOutputDirRenaming = False
-    else:
-      outputDir = ChimneyReader.tempDirName(self.sourceSpecs.sourceInfo)
-      if os.path.isdir(outputDir):
-        allowOutputDirRenaming = finalize
-      else:
-        outputDir = ChimneyReader.outputDirName(self.sourceSpecs.sourceInfo)
-        allowOutputDirRenaming = False
-    # if autodetect output dir
-    
     expectedFiles = set(self.expectedFiles(sourceDir=outputDir))
     
     logging.debug("Expected {nFiles} files in '{outputDir}'"
@@ -621,7 +625,9 @@ class ChimneyReader:
     # 
     
     if thoroughness == 0:
-      if len(CSVfiles) == len(expectedFiles): return True
+      if len(CSVfiles) == len(expectedFiles):
+        logging.debug("Found the expected number ({}) of CSV files found in '{}'.".format(len(CSVfiles), outputDir))
+        return True
       else:
         logging.error(
           "Expected {nExpected} files in '{outputDir}', {nFound} found."
@@ -644,6 +650,8 @@ class ChimneyReader:
           nMissing=len(missingFiles), nExpected=len(expectedFiles)
           ))
         success = False
+      else:
+        logging.debug("All {} expected CSV files found in '{}'.".format(len(expectedFiles), outputDir))
       # if missing
     # if thoroughness >= 1
       
@@ -660,6 +668,8 @@ class ChimneyReader:
           nSpurious=len(spuriousFiles)
           ))
         success = False
+      else:
+        logging.debug("No spurious CSV files found in '{}'.".format(outputDir))
       # if missing
     # if thoroughness >= 2
     
@@ -671,7 +681,7 @@ class ChimneyReader:
     if thoroughness >= 3:
       watch = StopWatch()
       nExpectedPoints = self.scope.WaveformSamples
-      for iFile, fileName in enumerate(dataFiles):
+      for iFile, fileName in enumerate(sorted(dataFiles)):
         logging.info \
           ("[{}/{}] Checking: '{}'".format(iFile + 1, len(dataFiles), fileName))
         unparseable = None
@@ -731,7 +741,6 @@ class ChimneyReader:
       else: iFile += 1 # for files
       logging.info("{} files checked in {}.".format(iFile, watch.toString()))
     # if thoroughness >= 3
-      
     
     #
     # thoroughness >= 5: ???
@@ -739,15 +748,58 @@ class ChimneyReader:
     if thoroughness >= 5:
       logging.warning("Chimney.verify(thoroughness=5) not implemented yet.")
     
-    if success and finalize:
-      logging.debug("Verification successful: proceeding with finalization.")
-      self._finalizeOutputFiles(self.sourceSpecs.sourceInfo, outputDir=outputDir)
-      self.generateInfoFile(scriptDir=outputDir)
-      if allowOutputDirRenaming:
-        self._finalizeOutputDir(self.sourceSpecs.sourceInfo, outputDir=outputDir)
+    return success
+  # checkOutput()
+  
+  
+  def verify(self,
+   outputDir = None,
+   thoroughness = DefaultVerificationThoroughness,
+   finalize = True,
+   ):
+    """Scans the output directory finding if data files are missing or spurious.
+    
+    The verification is attempted on the temporary output directory; if the
+    verification succeeds and `finalize` is not `False`, the output directory
+    is then renamed from temporary to output directory.
+    If that is not found, the final output directory is tried instead, and no
+    renaming takes place in any case.
+    Also if the `outputDir` is explicitly specified, it is not going to be
+    renamed in any case.
+    
+    For thoroughness level explanation, see `checkOutput()`.
+    """
+    
+    if self.readerState.chimney is None:
+      logging.error("No chimney being parsed.")
+      return False
+    
+    # sanity check on renaming before the potentially long check happens
+    outputDir, finalOutDir = ChimneyReader.finalOutputDirectoryTarget \
+      (self.sourceSpecs.sourceInfo, outputDir=outputDir)
+    
+    if finalize and (finalOutDir is not None) and os.path.exists(finalOutDir):
+      raise RuntimeError("Final output directory '{}' already exists."
+        " Either remove it (recommended), or disable output finalization"
+        " (`verify(finalize=False)`)".format(finalOutDir))
+    # if finalize sanity check
+    
+    verified = self.checkOutput(outputDir, thoroughness=thoroughness)
+    
+    if not verified:
+      logging.error("Verification failed: please correct the problems before proceeding to archive.")
+      return False
     #
     
-    return success
+    if finalize:
+      logging.debug("Verification successful: proceeding with finalization.")
+      outputDir = self._finalize(outputDir, finalOutDir)
+    # if finalizing
+    
+    logging.info("Output is now in directory '{}'.".format(outputDir))
+    logging.info("Verification was successful: now generate a script for archiving with `generateArchivalScript()`.")
+    
+    return True
   # verify()
   
   
@@ -870,7 +922,15 @@ rsync ${{FAKE:+'-n'}} -avz --chmod='ug+rw' --progress --files-from='-' "$SourceB
     # with
     import stat
     os.chmod(scriptPath, stat.S_IRWXU | stat.S_IXGRP | stat.S_IXOTH | stat.S_IRGRP | stat.S_IROTH)
-
+    
+    logging.info("""The archival script '{scriptName}' has been generated.
+      Now that script can be run on a new shell, and the work on this chimney ({chimney}) is complete.
+      You can exit the python shell, or start a new chimney with `start()`.
+      """.format(
+        scriptName=scriptPath,
+        chimney=self.sourceSpecs.sourceInfo.chimney,
+      ))
+    
     return scriptPath
   # generateArchivalScript()
   
@@ -917,11 +977,18 @@ rsync ${{FAKE:+'-n'}} -avz --chmod='ug+rw' --progress --files-from='-' "$SourceB
   # expectedFiles()
   
   
-  def _finalizeOutputFiles(self, sourceInfo, outputDir = None):
-    tempDir = outputDir if outputDir is not None \
-      else ChimneyReader.tempDirName(sourceInfo)
+  def _finalize(self, outputDir, finalOutDir):
+    self._finalizeOutputFiles(outputDir)
+    if finalOutDir is not None:
+      outputDir = self._renameOutputDir(outputDir, finalOutDir)
+    self.generateInfoFile(scriptDir=outputDir)
+    return outputDir
+  # _finalize()
+  
+  
+  def _finalizeOutputFiles(self, outputDir):
     
-    expectedFiles = self.expectedFiles(sourceDir=tempDir)
+    expectedFiles = self.expectedFiles(sourceDir=outputDir)
     nChanged = 0
     import stat
     for file_ in expectedFiles:
@@ -936,18 +1003,91 @@ rsync ${{FAKE:+'-n'}} -avz --chmod='ug+rw' --progress --files-from='-' "$SourceB
   # _finalizeOutputFiles()
   
   
-  def _finalizeOutputDir(self, sourceInfo, outputDir = None):
-    tempDir = outputDir if outputDir is not None \
-      else ChimneyReader.tempDirName(sourceInfo)
-    outDir = ChimneyReader.outputDirName(sourceInfo)
-    
-    if os.path.isdir(tempDir):
-      os.rename(tempDir, outDir)
-      logging.info("Temporary directory '{oldDir}' renamed into '{newDir}'"
-        .format(oldDir=tempDir, newDir=outDir))
-    # if
-  # _finalizeOutputDir()
+  @staticmethod
+  def _renameOutputDir(tempDir, finalDir):
+    """Returns the name of `tempDir` after renaming."""
+    if not os.path.isdir(tempDir):
+      logging.debug("'{}' is not a temporary output directory.".format(tempDir))
+      return tempDir
+    if ChimneyReader.samefile(tempDir, finalDir):
+      logging.debug(
+        "Temporary ('{}') and final ('{}') directories are the same."
+        .format(tempDir, finalDir)
+        )
+      return tempDir
+    os.rename(tempDir, finalDir)
+    logging.info("Temporary output directory '{oldDir}' renamed into '{newDir}'"
+      .format(oldDir=tempDir, newDir=finalDir))
+    return finalDir
+  # _renameOutputDir()
   
+  
+  @staticmethod
+  def finalOutputDirectoryTarget(sourceInfo, outputDir = None):
+    """Returns a pair: the name of the directory to check, and the name to
+    rename it into (`None` if no renaming should happen)."""
+    if outputDir:
+      logging.debug(
+        "Output directory '{}' was explicitly specified and will not be renamed."
+        .format(outputDir)
+        )
+      return ( outputDir, None )
+    # if
+    
+    outputDir = ChimneyReader.tempDirName(sourceInfo)
+    if not os.path.isdir(outputDir):
+      # there is no temporary directory: we target the final one, no renaming
+      outputDir = ChimneyReader.outputDirName(self.sourceSpecs.sourceInfo)
+      logging.debug(
+        "Checking the final output directory '{}'; no renaming will happen."
+        .format(outputDir)
+        )
+      return ( outputDir, None )
+    # if temporary output directory does not exist
+    
+    finalOutDir = ChimneyReader.finalOutputDir(sourceInfo)
+    if outputDir == finalOutDir:
+      # this should not actually happen
+      # (unless temporary and final do have the same name, which they do not)
+      logging.debug(
+        "Output directory '{}' has already the final name and will not be renamed."
+        .format(outputDir)
+        )
+      return ( outputDir, None )
+    # if same name
+    
+    logging.debug(
+      "Output directory '{}' may be renamed to '{}'."
+      .format(outputDir, finalOutDir)
+      )
+    
+    if not os.path.isdir(outputDir):
+      logging.debug(
+        "Output directory '{}' appears not to exist. That's going to be trouble."
+        .format(outputDir)
+        )
+      return ( outputDir, finalOutDir ) # what are we talking about here??
+    # if
+    
+    if os.path.exists(finalOutDir) and ChimneyReader.samefile(outputDir, finalOutDir):
+      logging.debug(
+        "Output directory '{}' is the same as the existing final one '{}'"
+        " and will not be renamed."
+        .format(outputDir, finalOutDir)
+        )
+      return ( outputDir, None )
+    # if finalize sanity check
+    
+    return ( outputDir, finalOutDir )
+    
+  # finalOutputDirectoryTarget()
+  
+  
+  @staticmethod
+  def samefile(a, b):
+    try: return os.path.samefile(a, b)
+    except OSError: return False
+  # samefile(a, b)
   
   @staticmethod
   def outputDirName(sourceInfo, temporary = False):
@@ -960,6 +1100,10 @@ rsync ${{FAKE:+'-n'}} -avz --chmod='ug+rw' --progress --files-from='-' "$SourceB
   def tempDirName(sourceInfo):
     return ChimneyReader.outputDirName(sourceInfo, temporary=True)
   
+  @staticmethod
+  def finalOutputDir(sourceInfo):
+    return ChimneyReader.outputDirName(sourceInfo, temporary=False)
+
   @staticmethod
   def resetReaderState(readerState = None, chimney = None, N = None):
     if readerState is None:
