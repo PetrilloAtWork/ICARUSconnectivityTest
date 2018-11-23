@@ -51,7 +51,7 @@ Streamlined data acquisition session with `ChimneyReader`
 
 `ChimneyReader` is a bookkeeping object that drives through the test.
 The operator interacts with it by creating an instance of it and invoking its callables directly from the python interpreter shell.
-From version 2, this object _requires_ a configuration file (or more).
+From version 4, this object _requires_ a configuration file (or more).
 
 An example of the start of a data acquisition on chimney `WW04`:
 ```python
