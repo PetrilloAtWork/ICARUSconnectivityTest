@@ -214,8 +214,6 @@ class ChimneyReader:
       'channel'      ,
       'writing'      ,
       { 'name': 'readout', 'comment': '(breakout below)', },
-      'plot'         ,
-      'draw'         ,
       { 'name': 'graphicUpdate', 'description': 'update display', 'namespace': ChimneyReader.TimerPlotNamespace, },
       title="Timing of `ChimneyReader.readout()`",
       ) # timers
