@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from stopwatch import WatchCollection
 import sys
 import os
 import re
@@ -485,142 +486,155 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
   # waveform. We also leave some room for the eye.
   defYamplitude = 0.9
   defYmargin = 0.1
-
-  sourceInfo = sourceSpecs.sourceInfo
   
-  baseColors = ( ROOT.kBlack, ROOT.kYellow + 1, ROOT.kCyan + 1, ROOT.kMagenta + 1, ROOT.kGreen + 1)
+  timers = options.get('timers', WatchCollection(title="`plotAllPositionWaveforms()`: timings"))
   
-  channelRange = ExtremeAccumulator()
-  
-  # prepare a canvas to draw in, and split it
-  if canvasName is None:
-    canvasName = sourceInfo.formatString("CWaves%(chimney)s_Conn%(connection)s_Pos%(position)d")
-  if canvas is None:
-    canvas = ROOT.TCanvas(canvasName, canvasName)
-  else:
+  with timers.setdefault('total', description="total plot time"):
+    sourceInfo = sourceSpecs.sourceInfo
+    
+    baseColors = ( ROOT.kBlack, ROOT.kYellow + 1, ROOT.kCyan + 1, ROOT.kMagenta + 1, ROOT.kGreen + 1)
+    
+    channelRange = ExtremeAccumulator()
+    
+    # prepare a canvas to draw in, and split it
+    if canvasName is None:
+      canvasName = sourceInfo.formatString("CWaves%(chimney)s_Conn%(connection)s_Pos%(position)d")
+    if canvas is None:
+      canvas = ROOT.TCanvas(canvasName, canvasName)
+    else:
+      canvas.cd()
+      canvas.Clear()
+      canvas.SetName(canvasName)
+    ROOT.SetOwnership(canvas, False)
+    if options.get("grid", "square").lower() in [ "square", "default", ]:
+      canvas.DivideSquare(sourceInfo.MaxChannels)
+    elif options["grid"].lower() == "vertical":
+      canvas.Divide(1, sourceInfo.MaxChannels)
+    elif options["grid"].lower() == "horizontal":
+      canvas.Divide(sourceInfo.MaxChannels, 1)
+    else:
+      raise RuntimeError("Option 'grid' has unrecognised value '%s'" % options['grid'])
     canvas.cd()
-    canvas.Clear()
-    canvas.SetName(canvasName)
-  ROOT.SetOwnership(canvas, False)
-  if options.get("grid", "square").lower() in [ "square", "default", ]:
-    canvas.DivideSquare(sourceInfo.MaxChannels)
-  elif options["grid"].lower() == "vertical":
-    canvas.Divide(1, sourceInfo.MaxChannels)
-  elif options["grid"].lower() == "horizontal":
-    canvas.Divide(sourceInfo.MaxChannels, 1)
-  else:
-    raise RuntimeError("Option 'grid' has unrecognised value '%s'" % options['grid'])
-  canvas.cd()
-  
-  # on each pad, draw a different channel info
-  for channelIndex in xrange(1, sourceInfo.MaxChannels + 1):
     
-    # each channel will hve a multigraph with one graph for each waveform
-    channelSourceInfo = sourceInfo.copy()
-    channelSourceInfo.setChannelIndex(channelIndex)
-    
-    channelRange.add(channelSourceInfo.channel)
-    
-    #
-    # pad graphic options preparation
-    #
-    pad = canvas.cd(channelIndex)
-    pad.SetFillColor(ROOT.kWhite)
-    pad.SetLeftMargin(0.08)
-    pad.SetRightMargin(0.03)
-    pad.SetBottomMargin(0.06)
-    pad.SetGridx()
-    pad.SetGridy()
-    
-    baseColor = baseColors[channelIndex % len(baseColors)]
-    
-    mgraph = ROOT.TMultiGraph()
-    mgraph.SetName(channelSourceInfo.formatString("MG_%(chimney)s_%(connection)s_POS%(position)d_CH%(channelIndex)d"))
-    mgraph.SetTitle(channelSourceInfo.formatString("Chimney %(chimney)s connection %(connection)s channel %(channel)s"))
-    
-    #
-    # drawing all waveforms and collecting statistics
-    #
-    baselineStats = StatAccumulator()
-    baselineRMSstats = StatAccumulator()
-    maxStats = StatAccumulator()
-    peakStats = StatAccumulator()
-    Vrange = ExtremeAccumulator()
-    
-    iSource = 0
-    sourcePaths = sourceSpecs.allChannelSources(channelIndex)
-    for sourcePath in sourcePaths:
-      graph = plotWaveformFromFile(sourcePath, sourceInfo=channelSourceInfo)
-      if not graph: continue
-      ROOT.SetOwnership(graph, False)
-      graph.SetLineColor(baseColor)
+    # on each pad, draw a different channel info
+    for channelIndex in xrange(1, sourceInfo.MaxChannels + 1):
       
-      stats = extractStatistics(graph.GetX(), graph.GetY())
-      baselineStats.add(stats['baseline']['value'], w=stats['baseline']['error'])
-      baselineRMSstats.add(stats['baseline']['RMS'])
-      maxStats.add(stats['maximum']['value'])
-      peakStats.add(stats['peaks']['absolute']['value'])
-      Vrange.add(stats['maximum']['value'])
-      Vrange.add(stats['minimum']['value'])
-      
-      mgraph.Add(graph, "L")
-      iSource += 1
-    # for
-    if iSource == 0: 
-      pad.SetFillColor(ROOT.kRed)
-      continue # no graphs, bail out
+      with timers.setdefault('channel', description="channel plot time"):
+        # each channel will hve a multigraph with one graph for each waveform
+        channelSourceInfo = sourceInfo.copy()
+        channelSourceInfo.setChannelIndex(channelIndex)
+        
+        channelRange.add(channelSourceInfo.channel)
+        
+        #
+        # pad graphic options preparation
+        #
+        pad = canvas.cd(channelIndex)
+        pad.SetFillColor(ROOT.kWhite)
+        pad.SetLeftMargin(0.08)
+        pad.SetRightMargin(0.03)
+        pad.SetBottomMargin(0.06)
+        pad.SetGridx()
+        pad.SetGridy()
+        
+        baseColor = baseColors[channelIndex % len(baseColors)]
+        
+        mgraph = ROOT.TMultiGraph()
+        mgraph.SetName(channelSourceInfo.formatString("MG_%(chimney)s_%(connection)s_POS%(position)d_CH%(channelIndex)d"))
+        mgraph.SetTitle(channelSourceInfo.formatString("Chimney %(chimney)s connection %(connection)s channel %(channel)s"))
+        
+        #
+        # drawing all waveforms and collecting statistics
+        #
+        baselineStats = StatAccumulator()
+        baselineRMSstats = StatAccumulator()
+        maxStats = StatAccumulator()
+        peakStats = StatAccumulator()
+        Vrange = ExtremeAccumulator()
+        
+        iSource = 0
+        sourcePaths = sourceSpecs.allChannelSources(channelIndex)
+        for sourcePath in sourcePaths:
+          with timers.setdefault('graph', description="graph creation"):
+            graph = plotWaveformFromFile(sourcePath, sourceInfo=channelSourceInfo)
+            if not graph: continue
+            ROOT.SetOwnership(graph, False)
+            graph.SetLineColor(baseColor)
+            mgraph.Add(graph, "L")
+          # with graph timer
+          
+          with timers.setdefault('stats', description="statistics extraction"):
+            stats = extractStatistics(graph.GetX(), graph.GetY())
+            baselineStats.add(stats['baseline']['value'], w=stats['baseline']['error'])
+            baselineRMSstats.add(stats['baseline']['RMS'])
+            maxStats.add(stats['maximum']['value'])
+            peakStats.add(stats['peaks']['absolute']['value'])
+            Vrange.add(stats['maximum']['value'])
+            Vrange.add(stats['minimum']['value'])
+          # with stats timer
+          
+          iSource += 1
+        # for
+        if iSource == 0: 
+          pad.SetFillColor(ROOT.kRed)
+          continue # no graphs, bail out
+        
+        with timers.setdefault('draw', description="multigraph drawing"):
+          ROOT.SetOwnership(mgraph, False)
+          mgraph.Draw("A")
+        # with draw timer
+          
+        with timers.setdefault('drawstats', description="statistics drawing"):
+          #
+          # setting (multi)graph graphic options
+          #
+          xAxis = mgraph.GetXaxis()
+          xAxis.SetDecimals()
+          xAxis.SetTitle("time  [s]")
+          # set the range to a minimum
+          yAxis = mgraph.GetYaxis()
+          yAxis.SetDecimals()
+          yAxis.SetTitle("signal  [V]")
+          # instead of hard-coding the expected baseline of ~2.0 we use the actual
+          # baseline average, rounded at 100 mV (one decimal digit)
+          drawBaseline = round(baselineStats.average(), 1)
+          Ymin = drawBaseline - defYamplitude
+          Ymax = drawBaseline + defYamplitude
+          if (Vrange.min() >= Ymin and Vrange.max() <= Ymax):
+            yAxis.SetRangeUser(Ymin - defYmargin, Ymax + defYmargin)
+          
+          #
+          # statistics box
+          #
+          statsText = [
+            "waveforms = %d" % iSource,
+            "baseline = %.3f V (RMS %.3f V)" % (baselineStats.average(), baselineRMSstats.average()),
+            "maximum = (%.3f #pm %.3f) V" % (maxStats.average(), maxStats.averageError()),
+            "peak = %.3f V (RMS %.3f V)" % (peakStats.average(), peakStats.RMS())
+            ]
+          # "none" is a hack: `TPaveText` deals with NDC and removes it from the options,
+          # then passes the options to `TPave`; if `TPave` finds an empty option string
+          # (as it does when the original option was just "NDC"), it sets a "br" default;
+          # but ROOT does not punish the presence of unsupported options.
+          statBox = ROOT.TPaveStats(0.60, 0.80 - 0.025*len(statsText), 0.98, 0.92, "NDC none")
+          statBox.SetOptStat(0); # do not print title (the other flags are ignored)
+          statBox.SetBorderSize(1)
+          statBox.SetName(mgraph.GetName() + "_stats")
+          for statText in statsText: statBox.AddText(statText)
+          statBox.SetFillColor(ROOT.kWhite)
+          statBox.SetTextFont(42) # regular (not bold) sans serif, scalable
+          statBox.Draw()
+          ROOT.SetOwnership(statBox, False)
+        # with drawstats timer
+      # with channel timer
+    # for channels
+    canvas.cd(0)
     
-    ROOT.SetOwnership(mgraph, False)
-    mgraph.Draw("A")
+    canvas.SetTitle(sourceInfo.formatString("Waveforms from chimney %(chimney)s, connection %(connection)s") + ", channels %d-%d" % (channelRange.min(), channelRange.max()))
+    canvas.Draw()
     
-    #
-    # setting (multi)graph graphic options
-    #
-    xAxis = mgraph.GetXaxis()
-    xAxis.SetDecimals()
-    xAxis.SetTitle("time  [s]")
-    # set the range to a minimum
-    yAxis = mgraph.GetYaxis()
-    yAxis.SetDecimals()
-    yAxis.SetTitle("signal  [V]")
-    # instead of hard-coding the expected baseline of ~2.0 we use the actual
-    # baseline average, rounded at 100 mV (one decimal digit)
-    drawBaseline = round(baselineStats.average(), 1)
-    Ymin = drawBaseline - defYamplitude
-    Ymax = drawBaseline + defYamplitude
-    if (Vrange.min() >= Ymin and Vrange.max() <= Ymax):
-      yAxis.SetRangeUser(Ymin - defYmargin, Ymax + defYmargin)
-    
-    #
-    # statistics box
-    #
-    statsText = [
-      "waveforms = %d" % iSource,
-      "baseline = %.3f V (RMS %.3f V)" % (baselineStats.average(), baselineRMSstats.average()),
-      "maximum = (%.3f #pm %.3f) V" % (maxStats.average(), maxStats.averageError()),
-      "peak = %.3f V (RMS %.3f V)" % (peakStats.average(), peakStats.RMS())
-      ]
-    # "none" is a hack: `TPaveText` deals with NDC and removes it from the options,
-    # then passes the options to `TPave`; if `TPave` finds an empty option string
-    # (as it does when the original option was just "NDC"), it sets a "br" default;
-    # but ROOT does not punish the presence of unsupported options.
-    statBox = ROOT.TPaveStats(0.60, 0.80 - 0.025*len(statsText), 0.98, 0.92, "NDC none")
-    statBox.SetOptStat(0); # do not print title (the other flags are ignored)
-    statBox.SetBorderSize(1)
-    statBox.SetName(mgraph.GetName() + "_stats")
-    for statText in statsText: statBox.AddText(statText)
-    statBox.SetFillColor(ROOT.kWhite)
-    statBox.SetTextFont(42) # regular (not bold) sans serif, scalable
-    statBox.Draw()
-    ROOT.SetOwnership(statBox, False)
-    
-  # for channels
-  canvas.cd(0)
-  
-  canvas.SetTitle(sourceInfo.formatString("Waveforms from chimney %(chimney)s, connection %(connection)s") + ", channels %d-%d" % (channelRange.min(), channelRange.max()))
-  canvas.Draw()
-  
-  return canvas
+    return canvas
+  # with total timer
 # plotAllPositionWaveforms()
 
 

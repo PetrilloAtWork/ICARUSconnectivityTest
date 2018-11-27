@@ -21,7 +21,7 @@ __version__ = "4.0"
 ################################################################################
 ### importing and default setup
 import drawWaveforms
-from stopwatch import StopWatch
+from stopwatch import StopWatch, WatchCollection
 from scopeTalker import TDS3054Ctalker
 import numpy
 import random
@@ -166,6 +166,7 @@ class ChimneyReader:
   
   DefaultVerificationThoroughness = 4 # see `verify()`
   
+  TimerPlotNamespace = 'plot'
   
   class ConfigurationError(RuntimeError):
     def __init__(self, msg, *args, **kargs):
@@ -192,8 +193,13 @@ class ChimneyReader:
     if N is not None: params.N = N
     
     # if ROOT is not available, we don't plot anything
-    try: ROOT
-    except NameError: self.drawWaveforms = False
+    try:
+      import ROOT
+      ROOT
+    except (ImportError, NameError):
+      if self.drawWaveforms:
+        logging.error("ROOT seems to be unavailable: plotting forcibly disabled.")
+      self.drawWaveforms = False
     
     self.scope = TDS3054Ctalker(params.IP, connect=not params.fake)
     self.readerState = ReaderState()
@@ -203,12 +209,16 @@ class ChimneyReader:
     self.setFake(params.fake)
     self.storageParams = params.storage
     self.canvas = None
-    self.timers = {
-      'readout': StopWatch(startNow=False),
-      'setup'  : StopWatch(startNow=False),
-      'channel': StopWatch(startNow=False),
-      'writing': StopWatch(startNow=False),
-      } # timers
+    self.timers = WatchCollection(
+      'setup'        ,
+      'channel'      ,
+      'writing'      ,
+      { 'name': 'readout', 'comment': '(breakout below)', },
+      'plot'         ,
+      'draw'         ,
+      { 'name': 'graphicUpdate', 'description': 'update display', 'namespace': ChimneyReader.TimerPlotNamespace, },
+      title="Timing of `ChimneyReader.readout()`",
+      ) # timers
   # __init__()
   
   
@@ -541,8 +551,15 @@ class ChimneyReader:
   def plotLast(self):
     # this will work only if `drawWaveforms` module is loaded
     
-    self.canvas = drawWaveforms.plotAllPositionWaveforms(self.sourceSpecs, canvas=self.canvas)
-    self.canvas.Update()
+    with self.timers.withNamespace("plot"):
+      self.canvas = drawWaveforms.plotAllPositionWaveforms(
+        self.sourceSpecs,
+        canvas=self.canvas,
+        options={ 'timers': self.timers, },
+        )
+      with self.timers['graphicUpdate']:
+        self.canvas.Update()
+    # with plot namespace
   # plotLast()
   
   def removeLast(self, n = 1):
@@ -936,18 +953,7 @@ rsync ${{FAKE:+'-n'}} -avz --chmod='ug+rw' --progress --files-from='-' "$SourceB
   
   
   def printTimers(self, out = logging.info):
-    out("""Timing of `ChimneyReader.readout()`:
-      * setup:      {setup}
-      * readout:    {channel} (see breakout below)
-      * writing:    {writing}
-      * total:      {readout}
-      """.format(
-        **dict([
-          ( timerName, timer.toString("ms", options=('times', 'average')) )
-          for timerName, timer in self.timers.items()
-        ])
-      )
-      )
+    out(self.timers.toString(unit="ms", options=('times', 'average')))
     self.scope.printTimers(out)
   # printTimers()
   

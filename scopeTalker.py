@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from stopwatch import StopWatch
+from stopwatch import WatchCollection
 import visa
 import numpy
 from struct import unpack
@@ -105,7 +105,7 @@ class ScopeTalker:
   def read_raw(self):
     return self.retry("read_raw")
   
-  def identify(self): return self.query("*IDN?")
+  def identify(self): return self.query("*IDN?").strip()
   
   ###
   ### internal junk
@@ -135,12 +135,13 @@ class TDS3054Ctalker(ScopeTalker):
   
   def __init__(self, *args, **kargs):
     ScopeTalker.__init__(self, *args, **kargs)
-    self.timers = {
-      'setup':    StopWatch(startNow = False),
-      'readout':  StopWatch(startNow = False),
-      'convert':  StopWatch(startNow = False),
-      'readData': StopWatch(startNow = False),
-      }
+    self.timers = WatchCollection(
+      'setup',
+      'readout',
+      'convert',
+      'readData',
+      title="Timing of `TDS3054Ctalker.readData()`",
+      )
   # __init__()
   
   def readDataSetup(self):
@@ -241,18 +242,7 @@ class TDS3054Ctalker(ScopeTalker):
   
   
   def printTimers(self, out = logging.info):
-    out("""Timing of `TDS3054Ctalker.readData()`:
-      * setup:      {setup}
-      * readout:    {readout}
-      * conversion: {convert}
-      * total:      {readData}
-      """.format(
-        **dict([
-          ( timerName, timer.toString("ms", options=('times', 'average')) )
-          for timerName, timer in self.timers.items()
-        ])
-      )
-      )
+    out(self.timers.toString(unit="ms", options=('times', 'average')))
   # printTimers()
   
   
