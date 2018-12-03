@@ -64,22 +64,41 @@ def confirm(msg, yes="Y", no="N", caseSensitive=False):
 # confirm()
 
 
+def getCaseUnsensitive(d, key, *default):
+  assert(len(default) <= 1)
+  key = key.lower()
+  for k, v in d.items():
+    if key == k.lower(): return v
+  if len(default) > 0: return default[0]
+  raise KeyError(key)
+# getCaseUnsensitive()
+
+
+def flatten(l):
+  fl = []
+  for item in l: fl.extend(item)
+  return fl
+# flatten()
+
+
 ################################################################################
 ### Reader state: describes what we are doing right now (incomplete)
 
 class ReaderState:
   
-  ChimneyMatcher = re.compile('[EW]{2}[0-9]{1,2}')
+  ChimneyMatcher = re.compile('([EW]{2}|[A-D])([0-9]{1,2})')
   CableMatcher = re.compile('[A-Z][0-9]{2}')
   
-  def __init__(self):
+  def __init__(self, chimney = None, N = 10, ):
     self.enabled = False
     self.confirm = True
-    self.chimney = None
+    self.test = ""
     self.cableTag = None
     self.cableNo = None
     self.position = None
-    self.N = 10
+    self.N = N
+    
+    self.setChimney(chimney)
     
     self.quiet = False
     self.fake = False
@@ -92,9 +111,38 @@ class ReaderState:
     print "All commands are now just being printed and NOT going to be executed."
     self.enabled = False
   
+  def hasChimney(self): return self.chimney is not None
+  
+  def setChimney(self, chimney):
+    if chimney is None:
+      self.chimney = None
+      self.chimneySeries = None
+      self.chimneyNumber = 0
+      return
+    info = ReaderState.splitChimney(chimney.upper())
+    if info is None:
+      raise RuntimeError("ReaderState.setChimney('{}'): invalid chimney."
+                         .format(chimney))
+    self.chimneySeries, self.chimneyNumber = info
+    self.chimney \
+      = ReaderState.formatChimney(self.chimneySeries, self.chimneyNumber)
+    self.cableTag = ChimneyReader.CableTags[self.chimneySeries]
+  # setChimney()
+  
+  @staticmethod
+  def splitChimney(chimney):
+    info = ReaderState.ChimneyMatcher.match(chimney.upper())
+    chimneyNumber = info.group(2).lstrip('0')
+    return ( info.group(1), int(chimneyNumber) if chimneyNumber else 0, ) \
+      if info is not None else None
+  # splitChimney()
+  
+  @staticmethod
+  def formatChimney(series, n): return "{}{:02d}".format(series, n)
+  
   @staticmethod
   def isChimney(chimney):
-    return ReaderState.ChimneyMatcher.match(chimney.upper()) is not None
+    return ReaderState.splitChimney(chimney.upper()) is not None
   
   @staticmethod
   def isCable(cable):
@@ -106,7 +154,7 @@ class ReaderState:
     return drawWaveforms.WaveformSourceInfo.firstIndexOf(self.position, self.N)
   
   def stateStr(self):
-    return "Chimney %(chimney)s connection %(cableTag)s%(cableNo)02d position %(position)d" % vars(self)
+    return "Test %(test)s chimney %(chimney)s connection %(cableTag)s%(cableNo)02d position %(position)d" % vars(self)
   
   def execute(self, command):
     if self.enabled:
@@ -124,10 +172,13 @@ class ReaderState:
     # if ... else
   # execute()
   
-  def makeWaveformSourceInfo(self, channelNo = None, index = None):
+  def makeWaveformSourceInfo(self,
+   channelNo = None, index = None, testName = None,
+   ):
     return drawWaveforms.WaveformSourceInfo(
       chimney=self.chimney, connection=self.cable(), channelIndex=channelNo,
-      position=self.position, index=index
+      position=self.position, index=index,
+      testName=(testName if testName is not None else self.test),
       )
   # makeWaveformSourceInfo()
   
@@ -137,10 +188,230 @@ class ReaderState:
     different position."""
     sourceInfo.connection = self.cable()
     sourceInfo.setPosition(self.position)
+    sourceInfo.test = self.test
   # updateWaveformSourceInfo()
 
   
 # class ReaderState
+
+
+class ReaderStateSequence:
+  """Defines a sequence of states for the complete test.
+  
+  The sequence defined by `goNext()`, `goPrev()` and `reset()` is to
+   * go through the sequence of all positions for each test
+   * go through the sequence of all tests for each cable
+   * go through all cables in the chimney
+  
+  The list of positions is 1 to 8, while the list of cables is descending,
+  18 to 1. The list of test is directly adopted from the constructor parameter.
+  
+  Other implementations can derive from this one and redefine the sequence
+  and the ranges.
+  """
+  
+  def __init__(self, state,
+   tests = [ '' ],
+   cables = range(18, 0, -1),
+   positions = range(1, 9),
+   ):
+    self.readerState = state
+    self.setPositions(positions)
+    self.setTests(tests)
+    self.setCables(cables)
+    self.reset()
+  # __init__()
+  
+  def reset(self):
+    self.iPosition = 0
+    self.iCable = 0
+    self.iTest = 0
+    self.updateState()
+    assert self.isValid()
+    assert self.isAtStart()
+  # reset()
+  
+  def setCables(self, cables):
+    assert cables
+    self.cables = cables[:]
+  # setCables()
+  
+  def setTests(self, tests):
+    assert tests
+    self.tests = tests[:]
+  # setTests()
+  
+  def setPositions(self, positions):
+    assert positions
+    self.positions = positions[:]
+  # setPositions()
+  
+  def state(self): return self.readerState
+  
+  def position(self): return self.positions[self.iPosition]
+  def firstPosition(self): return self.positions[0]
+  def lastPosition(self): return self.positions[-1]
+  def isPosition(self):
+    return (self.iPosition >= 0) and (self.iPosition < self.nPositions())
+  def isFirstPosition(self): return self.iPosition == 0
+  def isLastPosition(self): return self.iPosition >= (self.nPositions() - 1)
+  def nPositions(self): return len(self.positions)
+ 
+  def cable(self): return self.cables[self.iCable]
+  def firstCable(self): return self.cables[0]
+  def lastCable(self): return self.cables[-1]
+  def isCable(self):
+    return (self.iCable >= 0) and (self.iCable < self.nCables())
+  def isFirstCable(self): return self.iCable == 0
+  def isLastCable(self): return self.iCable >= (self.nCables() - 1)
+  def nCables(self): return len(self.cables)
+
+  def test(self): return self.tests[self.iTest]
+  def firstTest(self): return self.tests[0]
+  def lastTest(self): return self.tests[-1]
+  def isTest(self): return (self.iTest >= 0) and (self.iTest < self.nTests())
+  def isFirstTest(self): return self.iTest == 0
+  def isLastTest(self): return self.iTest >= (self.nTests() - 1)
+  def nTests(self): return len(self.tests)
+  
+  def __iter__(self): return ReaderStateSequence.Iterator(self, reset=True)
+  def __len__(self): return self.nPositions() * self.nTests() * self.nCables()
+  
+  def setPosition(self, position):
+    if self.positions.count(position) > 1:
+      raise RuntimeError(
+       "Can't set position {} since it's present in the sequence {} times."
+       .format(position, self.positions.count(position))
+       )
+    # if too many position
+    try: self.iPosition = self.positions.index(position)
+    except ValueError:
+      raise RuntimeError("{} is not a valid position to set.".format(position))
+    self.updateState()
+  # setPosition()
+  
+  def setCable(self, cableNo, resetTest = False, resetPosition = False):
+    if self.cables.count(cableNo) > 1:
+      raise RuntimeError(
+       "Can't set cable {} since it's present in the sequence {} times."
+       .format(cable, self.cables.count(cable))
+       )
+    # if too many cable
+    try: self.iCable = self.cables.index(cable)
+    except ValueError:
+      raise RuntimeError("{} is not a valid cable to set.".format(cable))
+    if resetTest: self.iTest = 0
+    if resetPosition: self.iPosition = 0
+    self.updateState()
+  # setCable()
+  
+  def setTest(self, test, resetPosition = False):
+    if self.tests.count(test) > 1:
+      raise RuntimeError(
+       "Can't set test {} since it's present in the sequence {} times."
+       .format(test, self.tests.count(test))
+       )
+    # if too many test
+    try: self.iTest = self.tests.index(test)
+    except ValueError:
+      raise RuntimeError("{} is not a valid test to set.".format(test))
+    if resetPosition: self.iPosition = 0
+    self.updateState()
+  # setTest()
+  
+  
+  def isValid(self):
+    return self.isCable() and self.isTest() and self.isPosition()
+  def isAtStart(self):
+    return (self.iPosition == 0) and (self.iTest == 0) and (self.iCable <= 0)
+  def isAtEnd(self): return self.iCable >= self.nCables()
+  
+  def goNext(self, n = 1):
+    self.iPosition += 1
+    if not self.isPosition():
+      self.iPosition = 0
+      self.iTest += 1
+    if not self.isTest():
+      self.iTest = 0
+      self.iCable += 1
+    if not self.isCable():
+      self.iPosition = 0
+      self.iTest = 0
+      self.iCable = self.nCables()
+    if (n > 1) and not self.goNext(n-1): return False
+    self.updateState()
+    return self.isCable()
+  # goNext()
+  
+  def goPrev(self, n = 1):
+    self.iPosition -= 1
+    if not self.isPosition():
+      self.iPosition = self.nPositions() - 1
+      self.iTest -= 1
+    if not self.isTest():
+      self.iTest = self.nTests() - 1
+      self.iCable -= 1
+    if not self.isCable():
+      self.iPosition = self.nPositions() - 1
+      self.iTest = self.nTests() - 1
+      self.iCable = -1
+    if (n > 1) and not self.goPrev(n-1): return False
+    self.updateState()
+    return self.isCable()
+  # goPrev()
+  
+  def updateState(self):
+    self.readerState.position = self.position()
+    self.readerState.test = self.test()
+    self.readerState.cableNo = self.cable() if self.isCable() else None
+    return True
+  # updateState()
+  
+  def __str__(self):
+    return "Connection {cable} (#{iCable}) test {test} (#{iTest})" \
+     " position {position} (#{iPosition})".format(
+      cable=self.cable(), iCable=self.iCable,
+      test=self.test(), iTest=self.iTest,
+      position=self.position(), iPosition=self.iPosition,
+      )
+  # __str__()
+  
+  
+  class Iterator:
+    def __init__(self, stateSeq, reset = True):
+      self.reset = reset
+      self.stateSeq = stateSeq
+    def __iter__(self): return self
+    def next(self):
+      if not self.stateSeq.isValid(): self.reset = True # this is for autoreset
+      if self.reset:
+        self.reset = False
+        self.stateSeq.reset()
+        return self.stateSeq
+      elif not self.stateSeq.goNext():
+        self.reset = True
+        raise StopIteration
+      return self.stateSeq
+    # next()
+  # class Iterator
+  
+# class ReaderStateSequence
+
+
+class HVandPulseSequence(ReaderStateSequence):
+  def __init__(self, state,
+   tests = [ '' ],
+   cables = flatten(zip(range(1, 10), range(10, 19))),
+   positions = range(1, 9),
+   ):
+    ReaderStateSequence.__init__(self,
+     state,
+     tests=tests, cables=cables, positions=positions,
+     )
+  # __init__()
+  
+# class HVandPulseSequence
+
 
 
 ################################################################################
@@ -154,12 +425,29 @@ class ChimneyReader:
   
   
   """
-  CableTags = { 'EE': 'V', 'EW': 'S', 'WE': 'V', 'WW': 'S', }
+  CableTags = {
+    'EE': 'V', 'EW': 'S', 'WE': 'V', 'WW': 'S', # September 2018 nomenclature
+    'A':  'V', 'B':  'S', 'C':  'V', 'D':  'S', # December 2018 nomenclature
+    }
   
   MinPosition = 1
   MaxPosition = 8
   MinCable = 1
   MaxCable = 18
+  
+  TestSets = {
+    'HV':     {
+      'tests': [ 'HV', ],
+      'sequence': HVandPulseSequence,
+      },
+    'Pulse':  {
+      'tests': [ '', ],
+      },
+    'Flange': {
+      'tests': [ 'PULSE', 'HV', ],
+      'sequence': HVandPulseSequence,
+      },
+  } # TestSets
   
   WaveformFilePattern = drawWaveforms.WaveformSourceFilePath.StandardPattern
   WaveformDirectory = drawWaveforms.WaveformSourceFilePath.StandardDirectory
@@ -202,9 +490,8 @@ class ChimneyReader:
       self.drawWaveforms = False
     
     self.scope = TDS3054Ctalker(params.IP, connect=not params.fake)
-    self.readerState = ReaderState()
-    self.readerState.chimney = chimney
-    self.readerState.N = params.N
+    self.selectTestSuite(params.testSuite, chimney=chimney, N=params.N)
+
     self.setQuiet(True) # this will be one day removed
     self.setFake(params.fake)
     self.storageParams = params.storage
@@ -309,6 +596,11 @@ class ChimneyReader:
     logging.getLogger().setLevel(logLevel)
     
     #
+    # TestSuite: name of the test being performed (see `ChimneyReader.TestSets`)
+    # Default is `pulse`.
+    localParams.testSuite = getConfig('TestSuite', "Pulse")
+    
+    #
     # WaveformsPerChannel: number of waveforms acquired on each position and
     #                      channel
     # Default is 10.
@@ -358,6 +650,26 @@ class ChimneyReader:
   # _configure()
   
   
+  def selectTestSuite(self, name, chimney = None, N = None):
+    try: self.testSpecs = getCaseUnsensitive(ChimneyReader.TestSets, name)
+    except KeyError:
+      raise RunetimeError(
+        "Unknown test suite: '{}'\nValid test suites: {})".format(
+          name, "', '".join(ChimneyReader.TestSets),
+          )
+        )
+    self.testSuiteName = name
+    # try ... except
+    try:
+      if not chimney: chimney = self.readerState.state().chimney
+      if N is None: N = self.readerState.state().N
+    except AttributeError: pass
+    
+    SeqClass = self.testSpecs.get('sequence', ReaderStateSequence)
+    self.readerState = SeqClass \
+      (ReaderState(chimney=chimney, N=N), tests=self.testSpecs['tests'])
+  # selectTestSuite()
+  
   @staticmethod
   def usage():
     print """
@@ -381,19 +693,17 @@ class ChimneyReader:
     """
   # usage()
   
-  def setQuiet(self, quiet = True): self.readerState.quiet = quiet
-  def setFake(self, fake = True): self.readerState.fake = fake
+  def setQuiet(self, quiet = True): self.readerState.state().quiet = quiet
+  def setFake(self, fake = True): self.readerState.state().fake = fake
   
   def start(self, chimney = None, N = None):
     
-    if N is not None: self.readerState.N = N
-    if chimney is not None: self.readerState.chimney = chimney
-    if self.readerState.chimney is None:
+    if N is not None: self.readerState.state().N = N
+    if chimney is not None: self.readerState.state().setChimney(chimney)
+    if not self.readerState.state().hasChimney():
       raise RuntimeError("\"start()\"... which chimney??")
-    if not self.readerState.isChimney(self.readerState.chimney):
-      raise RuntimeError("%r is not a valid chimney." % self.readerState.chimney)
     
-    ChimneyReader.resetReaderState(readerState=self.readerState)
+    ChimneyReader.resetReaderStateSequence(stateSeq=self.readerState)
     
     self.sourceSpecs = self.setupSourceSpecs()
     
@@ -416,14 +726,14 @@ class ChimneyReader:
     # Note that here the state that is also in `readerState` is not changed.
     
     
-    waveformInfo = self.readerState.makeWaveformSourceInfo()
-    waveformInfo.setFirstIndex(N=self.readerState.N)
+    waveformInfo = self.readerState.state().makeWaveformSourceInfo()
+    waveformInfo.setFirstIndex(N=self.readerState.state().N)
     self.sourceSpecs.setSourceInfo(waveformInfo)
     
     with self.timers['readout'], self.timers['setup']:
-      if not self.readerState.fake: self.scope.readDataSetup()
+      if not self.readerState.state().fake: self.scope.readDataSetup()
     
-    for iSet in range(self.readerState.N):
+    for iSet in range(self.readerState.state().N):
       for iChannel in range(waveformInfo.MaxChannels):
         
         with self.timers['readout']:
@@ -440,7 +750,7 @@ class ChimneyReader:
             #
             Time, Volt = (
               self.scope.readData(waveformInfo.channelIndex)
-              if not self.readerState.fake
+              if not self.readerState.state().fake
               else (
                 numpy.arange(0.0, 1.0E-5 * self.scope.WaveformSamples, 1.0E-5),
                 numpy.arange(0.0, 1.0E-6 * self.scope.WaveformSamples, 1.0E-6),
@@ -481,56 +791,33 @@ class ChimneyReader:
   
   
   def printNext(self):
-    if self.readerState.chimney is None:
+    if not self.readerState.state().hasChimney():
       logging.error("You'd better set a chimney first.")
       return False
-    if self.readerState.cableNo is None or self.readerState.position is None:
+    if self.readerState.isAtEnd():
       logging.info("Chimney sequence is complete: time to `verify()` that everything is in place.")
       return False
-    logging.info("next(): {}".format(self.readerState.stateStr()))
+    logging.info("next(): {}".format(self.readerState.state().stateStr()))
     return True
   # printNext()
   
   def skipToNext(self, n = 1):
-    if self.readerState.position == self.MaxPosition:
-      self.readerState.position = self.MinPosition
-      if self.readerState.cableNo == self.MinCable:
-        self.readerState.cableNo = None
-        self.readerState.position = None
-        return False
-      else: self.readerState.cableNo -= 1
-    else: self.readerState.position += 1
-    if (n > 1) and not self.skipToNext(n-1): return False
-    self.readerState.updateWaveformSourceInfo(self.sourceSpecs.sourceInfo)
+    if not self.readerState.goNext(n=n): return False
+    self._updateSourceInfo()
     return True
   # skipToNext()
   
   def skipToPrev(self, n = 1):
-    if self.readerState.position == self.MinPosition:
-      self.readerState.position = self.MaxPosition
-      if self.readerState.cableNo == self.MaxCable:
-        self.readerState.cableNo = None
-        self.readerState.position = None
-        return False
-      else: self.readerState.cableNo += 1
-    elif self.readerState.position is not None: self.readerState.position -= 1
-    else:
-      assert self.readerState.cableNo is None
-      self.readerState.position = self.MaxPosition
-      self.readerState.cableNo = self.MinCable
-    if (n > 1) and not self.skipToPrev(n-1): return False
-    self.readerState.updateWaveformSourceInfo(self.sourceSpecs.sourceInfo)
+    if not self.readerState.goPrev(n=n): return False
+    self._updateSourceInfo()
     return True
   # skipToPrev()
   
-  def jumpTo(self, cable = None, position = 1):
-    if (cable is not None) and ((cable > self.MaxCable) or (cable < self.MinCable)):
-      raise RuntimeError("Jump requested to the non-existing cable {}".format(cable))
-    if (position > self.MaxPosition) or (position < self.MinPosition):
-      raise RuntimeError("Jump requested to the non-existing position {}".format(position))
-    
-    if cable is not None: self.readerState.cableNo = cable
-    self.readerState.position = position
+  def jumpTo(self, cable = None, position = 1, test = None):
+    if cable is not None:
+      self.readerState.setCable(cable, resetTest=False, resetPosition=True)
+    if test is not None: self.readerState.setTest(test, resetPosition=True)
+    if position is not None: self.readerState.setPosition(position)
     self.readerState.updateWaveformSourceInfo(self.sourceSpecs.sourceInfo)
     self.printNext()
   # jumpTo()
@@ -544,7 +831,7 @@ class ChimneyReader:
   next = readNext
   
   def listLast(self):
-    return self.sourceSpecs.allPositionSources(N=self.readerState.N)
+    return self.sourceSpecs.allPositionSources(N=self.readerState.state().N)
   
   def plotLast(self):
     # this will work only if `drawWaveforms` module is loaded
@@ -567,7 +854,7 @@ class ChimneyReader:
     
     # remove data files
     dataFiles = self.listLast()
-    if not confirm("Remove %d files from %s?" % (len(dataFiles), self.readerState.stateStr())):
+    if not confirm("Remove %d files from %s?" % (len(dataFiles), self.readerState.state().stateStr())):
       print "You're the boss."
       self.skipToNext()
       self.printNext()
@@ -785,7 +1072,7 @@ class ChimneyReader:
     For thoroughness level explanation, see `checkOutput()`.
     """
     
-    if self.readerState.chimney is None:
+    if not self.readerState.state().hasChimney():
       logging.error("No chimney being parsed.")
       return False
     
@@ -850,7 +1137,9 @@ From host:    {hostname}
       softwareVersion=__version__,
       chimney=self.sourceSpecs.sourceInfo.chimney,
       date=time.ctime(),
-      scopeName=("(fake)" if self.readerState.fake else self.scope.identify()),
+      scopeName=("(fake)" if self.readerState.state().fake 
+                 else self.scope.identify()
+                 ),
       scopeAddress=self.scope.address,
       hostname=ChimneyReader.getHostName(),
       hostIP=ChimneyReader.getHostIP(),
@@ -868,7 +1157,7 @@ From host:    {hostname}
     unverified files. Please fix the files instead!
     """
     
-    if self.readerState.chimney is None:
+    if not self.readerState.state().hasChimney():
       logging.error("No chimney being parsed.")
       return False
     
@@ -957,29 +1246,54 @@ rsync ${{FAKE:+'-n'}} -avz --chmod='ug+rw' --progress --files-from='-' "$SourceB
   
   
   def setupSourceSpecs(self):
-    return ChimneyReader.makeSourceSpecs(self.readerState)
+    return ChimneyReader.makeSourceSpecs(self.readerState.state())
   
   
   def expectedFiles(self, sourceDir = None):
     """Returns a list of all expected CSV files, sorted."""
     
     # we run though all expected reader states in a local loop:
-    readerState = ChimneyReader.resetReaderState \
-      (chimney=self.readerState.chimney, N=self.readerState.N)
-    sourceSpecs = self.makeSourceSpecs(readerState, sourceDir=sourceDir)
+    readerState = ChimneyReader.resetReaderStateSequence(
+      chimney=self.readerState.state().chimney,
+      N=self.readerState.state().N,
+      tests=self.readerState.tests,
+      seqClass=self.readerState.__class__,
+      )
+    sourceSpecs = self.makeSourceSpecs(readerState.state(), sourceDir=sourceDir)
     
     expectedFiles = []
     while True:
-      positionFiles = sourceSpecs.allPositionSources(readerState.N)
+      positionFiles = sourceSpecs.allPositionSources(readerState.state().N)
       expectedFiles.extend(positionFiles)
       
-      if not ChimneyReader.incrementReaderState(readerState): break
-      sourceSpecs.sourceInfo.connection = readerState.cable()
-      sourceSpecs.sourceInfo.setPosition(readerState.position)
+      if not readerState.goNext(): break
+      sourceSpecs.sourceInfo.connection = readerState.state().cable()
+      sourceSpecs.sourceInfo.setPosition(readerState.state().position)
+      sourceSpecs.sourceInfo.test = readerState.state().test
     # while
     return expectedFiles
   # expectedFiles()
   
+  
+  def printFullSequence(self):
+    stateSeq = ChimneyReader.resetReaderStateSequence(
+     chimney=self.readerState.state().chimney,
+     N=self.readerState.state().N,
+     tests=self.readerState.tests,
+     seqClass=self.readerState.__class__,
+     )
+    for iStep, state in enumerate(stateSeq):
+      print ("[#{}] {}".format(iStep, state))
+    else: nSteps = iStep + 1
+    print("Total: {} steps.".format(nSteps))
+    return nSteps
+  # printFullSequence()
+  
+  
+  def _updateSourceInfo(self):
+    self.readerState.state().updateWaveformSourceInfo \
+      (self.sourceSpecs.sourceInfo)
+  # _updateSourceInfo()
   
   def _finalize(self, outputDir, finalOutDir):
     self._finalizeOutputFiles(outputDir)
@@ -1107,20 +1421,25 @@ rsync ${{FAKE:+'-n'}} -avz --chmod='ug+rw' --progress --files-from='-' "$SourceB
   @staticmethod
   def finalOutputDir(sourceInfo):
     return ChimneyReader.outputDirName(sourceInfo, temporary=False)
-
+  
   @staticmethod
-  def resetReaderState(readerState = None, chimney = None, N = None):
-    if readerState is None:
+  def resetReaderStateSequence(
+   stateSeq = None,
+   chimney = None, N = None, tests = None,
+   seqClass = ReaderStateSequence
+   ):
+    if stateSeq is None:
       assert chimney is not None
       assert N is not None
-      readerState = ReaderState()
-    if chimney is not None: readerState.chimney = chimney
-    if N is not None: readerState.N = N
-    readerState.cableTag = ChimneyReader.CableTags[readerState.chimney[:2].upper()]
-    readerState.cableNo = ChimneyReader.MaxCable
-    readerState.position = ChimneyReader.MinPosition
-    return readerState
-  # resetReaderState()
+      assert tests is not None
+      stateSeq = seqClass(ReaderState())
+    if chimney is not None: # we are changing the chimney
+      stateSeq.state().setChimney(chimney)
+    if N is not None: stateSeq.state().N = N # we are changing N
+    if tests is not None: stateSeq.setTests(tests) # we are changing tests
+    stateSeq.reset()
+    return stateSeq
+  # resetReaderStateSequence()
   
   
   @staticmethod
@@ -1128,7 +1447,7 @@ rsync ${{FAKE:+'-n'}} -avz --chmod='ug+rw' --progress --files-from='-' "$SourceB
     sourceInfo = drawWaveforms.WaveformSourceInfo(
       chimney=readerState.chimney, connection=readerState.cable(),
       position=readerState.position, channelIndex=1,
-      index=readerState.firstIndex()
+      index=readerState.firstIndex(), testName=readerState.test,
       )
     sourceInfo.updateChannel()
     return drawWaveforms.WaveformSourceFilePath(
@@ -1138,20 +1457,6 @@ rsync ${{FAKE:+'-n'}} -avz --chmod='ug+rw' --progress --files-from='-' "$SourceB
         (sourceDir if sourceDir is not None else ChimneyReader.tempDirName(sourceInfo)),
       )
   # makeSourceSpecs()
-  
-  @staticmethod
-  def incrementReaderState(readerState, n = 1):
-    if readerState.position == ChimneyReader.MaxPosition:
-      readerState.position = ChimneyReader.MinPosition
-      if readerState.cableNo == ChimneyReader.MinCable:
-        readerState.cableNo = None
-        readerState.position = None
-        return False
-      else: readerState.cableNo -= 1
-    else: readerState.position += 1
-    return (n <= 1) or ChimneyReader.incrementReaderState(readerState, n-1)
-  # incrementReaderState()
-  
   
   @staticmethod
   def getHostName():

@@ -462,11 +462,9 @@ class WatchCollection:
       self.namespace = namespace
     def __enter__(self):
       self.coll.useNamespace(self.namespace)
-      print "Namespace set:", self.coll.namespace
       return self.coll
     def __exit__(self, exc_type, exc_value, traceback):
       self.coll.useNamespace(self.oldNamespace)
-      print "Namespace restored:", self.coll.namespace
   # class NamespaceChanger
   
 # class WatchCollection

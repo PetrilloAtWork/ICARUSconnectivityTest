@@ -15,6 +15,21 @@ except ImportError:
 
 
 ################################################################################
+def capitalize(word): return word[:1].upper() + word[1:]
+def camelCase(*words):
+  try: s = words[0]
+  except IndexError: return ""
+  for word in words[1:]:
+    try:
+      if s[-1].islower(): word = capitalize(word) 
+    except IndexError: pass
+    s += word
+  # for
+  return s
+# camelCase()
+
+
+################################################################################
 ### WaveformSourceInfo: data structure with waveform identification parameters
 
 class WaveformSourceInfo:
@@ -23,8 +38,10 @@ class WaveformSourceInfo:
   
   def __init__(self,
    chimney=None, connection=None, channelIndex=None, position=None,
-   index=None
+   index=None,
+   testName="",
    ):
+    self.test         = testName
     self.chimney      = chimney
     self.connection   = connection
     self.position     = position
@@ -37,7 +54,7 @@ class WaveformSourceInfo:
     return WaveformSourceInfo(
       chimney=self.chimney, connection=self.connection,
       channelIndex=self.channelIndex, position=self.position,
-      index=self.index
+      index=self.index, testName=self.test,
       )
   # copy()
   
@@ -72,7 +89,7 @@ class WaveformSourceInfo:
 class WaveformSourceFilePath:
   
   StandardDirectory = "CHIMNEY_%(chimney)s"
-  StandardPattern = "waveform_CH%(channelIndex)d_CHIMNEY_%(chimney)s_CONN_%(connection)s_POS_%(position)d_%(index)d.csv"
+  StandardPattern = "%(test)swaveform_CH%(channelIndex)d_CHIMNEY_%(chimney)s_CONN_%(connection)s_POS_%(position)d_%(index)d.csv"
   
   def __init__(self, sourceInfo, filePattern, sourceDir = "."):
     """
@@ -174,7 +191,8 @@ def parseWaveformSource(path):
       sourceFilePattern.extend([ Token, "%(position)s", ])
       iToken += 1
       continue
-    elif TOKEN == 'WAVEFORM':
+    elif TOKEN.endswith('WAVEFORM'):
+      testName = Token[:-len('WAVEFORM')]
       channel = tokens[iToken]
       if not channel.startswith('CH'):
         raise RuntimeError("Error parsing file name '%s': '%s' is not a valid channel." % (triggerFileName, channel))
@@ -206,15 +224,7 @@ def parseWaveformSource(path):
   sourceFilePattern = "_".join(sourceFilePattern)
   if ext: sourceFilePattern += ext
   
-  return WaveformSourceFilePath(
-    chimney,
-    connection,
-    position,
-    channelIndex,
-    index,
-    filePattern,
-    sourceDir
-    )
+  return WaveformSourceFilePath(sourceInfo, sourceFilePattern, sourceDir)
   
 # parseWaveformSource()
   
@@ -669,7 +679,7 @@ if __name__ == "__main__":
   
   plotAllPositionsAroundFile(args.fileName)
   
-  if ROOT.gPad: ROOT.gPad.SaveAs(ROOT.gPad.GetName() + ".pdf")
+  if hasROOT and ROOT.gPad: ROOT.gPad.SaveAs(ROOT.gPad.GetName() + ".pdf")
   
   AllFiles = parseWaveformSource(args.fileName).allPositionSources()
   print "Matching files:"
