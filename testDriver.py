@@ -510,7 +510,10 @@ class ChimneyReader:
     extracted and stored in an unfeatured object and returned to the caller for
     processing.
     """
-    from configparser import SafeConfigParser, NoSectionError, NoOptionError
+    try:
+      from configparser import SafeConfigParser, NoSectionError, NoOptionError
+    except ImportError:
+      from ConfigParser import SafeConfigParser, NoSectionError, NoOptionError
     configFile = SafeConfigParser()
     if isinstance(configurationFilePath, (str, unicode, )):
       configurationFilePath = [ configurationFilePath, ]
