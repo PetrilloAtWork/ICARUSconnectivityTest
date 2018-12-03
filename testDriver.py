@@ -480,21 +480,13 @@ class ChimneyReader:
     if fake is not None: params.fake = fake
     if N is not None: params.N = N
     
-    # if ROOT is not available, we don't plot anything
-    try:
-      import ROOT
-      ROOT
-    except (ImportError, NameError):
-      if self.drawWaveforms:
-        logging.error("ROOT seems to be unavailable: plotting forcibly disabled.")
-      self.drawWaveforms = False
-    
     self.scope = TDS3054Ctalker(params.IP, connect=not params.fake)
     self.selectTestSuite(params.testSuite, chimney=chimney, N=params.N)
-
+    
     self.setQuiet(True) # this will be one day removed
     self.setFake(params.fake)
     self.storageParams = params.storage
+    self.drawWaveforms = drawWaveforms.useRenderer(params.drawWaveforms)
     self.canvas = None
     self.timers = WatchCollection(
       'setup'        ,
@@ -617,8 +609,12 @@ class ChimneyReader:
     #
     # DrawWaveforms: whether to draw the waveforms just acquired
     # Default is ON, unless ROOT module is not loaded.
-    self.drawWaveforms = getConfig.bool('DrawWaveforms', True)
-    
+    try:
+      localParams.drawWaveforms \
+        = "ROOT" if getConfig.bool('DrawWaveforms', True) else None
+    except ValueError:
+      localParams.drawWaveforms = getConfig('DrawWaveforms')
+    # try ... except
     
     #
     # [Storage] section: parameters for moving acquired data to storage

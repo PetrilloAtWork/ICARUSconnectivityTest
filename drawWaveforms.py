@@ -5,6 +5,7 @@ import sys
 import os
 import re
 import math
+import logging
 
 try:
   import ROOT
@@ -468,14 +469,237 @@ def extractStatistics(t, V):
 
 ################################################################################
 ### Waveform drawing
+################################################################################
+
+class VirtualRenderer:
+  
+  BaseColors = ()
+  
+  def __init__(self): pass
+  
+  def makeWaveformCanvas(self, canvasName, nPads, options = {}, canvas = None):
+    return None
+  
+  def selectPad(self, iPad, canvas = None): pass
+  
+  def plotFromFile(self, filePath): return None
+  
+  def graphPoints(self, graph): return 0
+  
+  def setGraphVerticalRange(self, graph, min, max): pass
+  
+  def SetRedBackgroundColor(self, canvas): pass
+  
+  def makeMultiplot(self, name, title): return None
+  
+  def addPlotToMultiplot(self, graph, mgraph, color): pass
+  
+  def drawWaveformsOnCanvas(self, graph, canvas = None): pass
+  
+  def drawLegendOnCanvas(self, legendLines, boxName, canvas = None):
+    return None
+  
+  def finalizeCanvas(self, canvas, title): pass
+
+# class VirtualRenderer
+
+################################################################################
+class MPLRendering:
+  
+  BaseColors = ()
+  
+  def __init__(self):
+    raise NotImplementedError("matplotlib rendering has not been implemented yet")
+  
+  def makeWaveformCanvas(self, canvasName, nPads, options = {}, canvas = None):
+    return None
+  
+  def selectPad(self, iPad, canvas = None): pass
+  
+  def plotFromFile(self, filePath): return None
+  
+  def graphPoints(self, graph): return 0
+  
+  def setGraphVerticalRange(self, graph, min, max): pass
+  
+  def SetRedBackgroundColor(self, canvas): pass
+  
+  def makeMultiplot(self, name, title): return None
+  
+  def addPlotToMultiplot(self, graph, mgraph, color): pass
+  
+  def drawWaveformsOnCanvas(self, graph, canvas = None): pass
+  
+  def drawLegendOnCanvas(self, legendLines, boxName, canvas = None):
+    return None
+  
+  def finalizeCanvas(self, canvas, title): pass
+
+# class MPLRendering
+
+################################################################################
+class ROOTrendering(VirtualRenderer):
+  
+  try: import ROOT
+  except ImportError: ROOT = None
+  
+  BaseColors = (
+    ROOT.kBlack,
+    ROOT.kYellow + 1,
+    ROOT.kCyan + 1,
+    ROOT.kMagenta + 1,
+    ROOT.kGreen + 1
+    )
+  
+  @staticmethod
+  def detachObject(obj):
+    ROOT.SetOwnership(obj, False)
+    return obj
+  # detachObject()
+  
+  def __init__(self): pass
+  
+  def plotFromFile(self, filePath):
+    return self.ROOT.TGraph(filePath, '%lg,%lg')
+  
+  def graphPoints(self, graph): return graph.GetN()
+  
+  def setGraphVerticalRange(self, graph, min, max):
+    graph.GetYaxis().SetRangeUser(min, max)
+  
+  def SetRedBackgroundColor(self, canvas):
+    canvas.SetFillColor(self.ROOT.kRed)
+  
+  def makeWaveformCanvas(self,
+   canvasName,
+   nPads,
+   options = {},
+   canvas = None, # reuse
+   ):
+    if canvas is None:
+      canvas = self.ROOT.TCanvas(canvasName, canvasName)
+    else:
+      canvas.cd()
+      canvas.Clear()
+      canvas.SetName(canvasName)
+    self.detachObject(canvas)
+    if options.get("grid", "square").lower() in [ "square", "default", ]:
+      canvas.DivideSquare(nPads)
+    elif options["grid"].lower() == "vertical":
+      canvas.Divide(1, nPads)
+    elif options["grid"].lower() == "horizontal":
+      canvas.Divide(nPads, 1)
+    else:
+      raise RuntimeError("Option 'grid' has unrecognised value '%s'" % options['grid'])
+    
+    for channelIndex in range(1, nPads + 1):
+      #
+      # pad graphic options preparation
+      #
+      pad = canvas.cd(channelIndex)
+      pad.SetFillColor(self.ROOT.kWhite)
+      pad.SetLeftMargin(0.08)
+      pad.SetRightMargin(0.03)
+      pad.SetBottomMargin(0.06)
+      pad.SetGridx()
+      pad.SetGridy()
+    # for
+    
+    canvas.cd()
+    return canvas
+  # makeWaveformCanvas()
+  
+  def selectPad(self, iPad, canvas = None):
+    canvas.cd(iPad + 1)
+  
+  def makeMultiplot(self, name, title):
+    mgraph = self.ROOT.TMultiGraph()
+    mgraph.SetName(name)
+    mgraph.SetTitle(title)
+    return mgraph
+  # makeMultiplot()
+  
+  def addPlotToMultiplot(self, graph, mgraph, color):
+    self.detachObject(graph)
+    graph.SetLineColor(color)
+    mgraph.Add(graph, "L")
+  # addPlotToMultiplot()
+    
+  def drawWaveformsOnCanvas(self, graph, canvas = None):
+    self.detachObject(graph)
+    if canvas: canvas.cd()
+    graph.Draw("A")
+    
+    #
+    # setting (multi)graph graphic options
+    #
+    xAxis = graph.GetXaxis()
+    xAxis.SetDecimals()
+    xAxis.SetTitle("time  [s]")
+    # set the range to a minimum
+    yAxis = graph.GetYaxis()
+    yAxis.SetDecimals()
+    yAxis.SetTitle("signal  [V]")
+    
+  # drawWaveformsOnCanvas()
+  
+  def drawLegendOnCanvas(self, legendLines, boxName, canvas = None):
+    if canvas: canvas.cd()
+    
+    # "none" is a hack: `TPaveText` deals with NDC and removes it from the
+    # options, then passes the options to `TPave`; if `TPave` finds an empty
+    # option string (as it does when the original option was just "NDC"), it
+    # sets a "br" default; but ROOT does not punish the presence of
+    # unsupported options.
+    statBox = self.detachObject(self.ROOT.TPaveStats
+      (0.60, 0.80 - 0.025*len(legendLines), 0.98, 0.92, "NDC none"))
+    statBox.SetOptStat(0); # do not print title (the other flags are ignored)
+    statBox.SetBorderSize(1)
+    statBox.SetName(boxName)
+    for statText in legendLines: statBox.AddText(statText)
+    statBox.SetFillColor(self.ROOT.kWhite)
+    statBox.SetTextFont(42) # regular (not bold) sans serif, scalable
+    statBox.Draw()
+    return statBox
+  # drawLegendOnCanvas()
+  
+  def finalizeCanvas(self, canvas, title):
+    canvas.cd(0)
+    canvas.SetTitle(title)
+    canvas.Draw()
+  # finalizeCanvas()
+  
+# class ROOTrendering
+
+################################################################################
+RenderOptions = {
+  None:         { 'name': None,         'rendererClass': None, },
+  'NONE':       { 'name': None,         'rendererClass': None, },
+  'ROOT':       { 'name': 'ROOT',       'rendererClass': ROOTrendering, },
+  'MATPLOTLIB': { 'name': 'matplotlib', 'rendererClass': MPLRendering, },
+}
+Renderer = None
+
+def useRenderer(rendererName):
+  try:
+    RendererInfo = RenderOptions[rendererName.upper()]
+  except KeyError:
+    raise RuntimeError("Unsupported renderer: {}".format(rendererName))
+  global Renderer
+  Renderer = RendererInfo['rendererClass']()
+  return RendererInfo['name']
+# useRenderer()
+
 
 def plotWaveformFromFile(filePath, sourceInfo = None):
   
   if not os.path.exists(filePath):
     print >>sys.stderr, "Can't plot data from '%s': file not found." % (filePath)
     return None
-  graph = ROOT.TGraph(filePath, '%lg,%lg')
-  print "'%s': %d points" % (filePath, graph.GetN())
+  graph = Renderer.plotFromFile(filePath)
+  logging.debug("'{file}': {points} points"
+    .format(file=filePath, points= Renderer.graphPoints(graph))
+    )
   graphName = sourceInfo.formatString("GWaves%(chimney)s_Conn%(connection)s_Ch%(channel)d_I%(index)d")
   graphTitle = sourceInfo.formatString("Chimney %(chimney)s connection %(connection)s channel %(channel)d (%(index)d)")
   graph.SetNameTitle(graphName, graphTitle)
@@ -502,56 +726,41 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
   with timers.setdefault('total', description="total plot time"):
     sourceInfo = sourceSpecs.sourceInfo
     
-    baseColors = ( ROOT.kBlack, ROOT.kYellow + 1, ROOT.kCyan + 1, ROOT.kMagenta + 1, ROOT.kGreen + 1)
+    baseColors = Renderer.BaseColors
     
     channelRange = ExtremeAccumulator()
     
     # prepare a canvas to draw in, and split it
     if canvasName is None:
-      canvasName = sourceInfo.formatString("CWaves%(chimney)s_Conn%(connection)s_Pos%(position)d")
-    if canvas is None:
-      canvas = ROOT.TCanvas(canvasName, canvasName)
-    else:
-      canvas.cd()
-      canvas.Clear()
-      canvas.SetName(canvasName)
-    ROOT.SetOwnership(canvas, False)
-    if options.get("grid", "square").lower() in [ "square", "default", ]:
-      canvas.DivideSquare(sourceInfo.MaxChannels)
-    elif options["grid"].lower() == "vertical":
-      canvas.Divide(1, sourceInfo.MaxChannels)
-    elif options["grid"].lower() == "horizontal":
-      canvas.Divide(sourceInfo.MaxChannels, 1)
-    else:
-      raise RuntimeError("Option 'grid' has unrecognised value '%s'" % options['grid'])
-    canvas.cd()
+      canvasName = sourceInfo.formatString \
+        ("C%(test)sWaves%(chimney)s_Conn%(connection)s_Pos%(position)d")
+    # if
+    canvas = Renderer.makeWaveformCanvas \
+      (canvasName, sourceInfo.MaxChannels, canvas = canvas)
     
+    sys.stderr.write("Rendering:")
     # on each pad, draw a different channel info
     for channelIndex in xrange(1, sourceInfo.MaxChannels + 1):
+      
+      sys.stderr.write(" CH{:d}".format(channelIndex))
       
       with timers.setdefault('channel', description="channel plot time"):
         # each channel will hve a multigraph with one graph for each waveform
         channelSourceInfo = sourceInfo.copy()
         channelSourceInfo.setChannelIndex(channelIndex)
         
+        Renderer.selectPad(channelIndex - 1, canvas)
         channelRange.add(channelSourceInfo.channel)
-        
-        #
-        # pad graphic options preparation
-        #
-        pad = canvas.cd(channelIndex)
-        pad.SetFillColor(ROOT.kWhite)
-        pad.SetLeftMargin(0.08)
-        pad.SetRightMargin(0.03)
-        pad.SetBottomMargin(0.06)
-        pad.SetGridx()
-        pad.SetGridy()
         
         baseColor = baseColors[channelIndex % len(baseColors)]
         
-        mgraph = ROOT.TMultiGraph()
-        mgraph.SetName(channelSourceInfo.formatString("MG_%(chimney)s_%(connection)s_POS%(position)d_CH%(channelIndex)d"))
-        mgraph.SetTitle(channelSourceInfo.formatString("Chimney %(chimney)s connection %(connection)s channel %(channel)s"))
+        graphName = channelSourceInfo.formatString \
+          ("MG_%(chimney)s_%(connection)s_POS%(position)d_CH%(channelIndex)d")
+        mgraph = Renderer.makeMultiplot(
+         name=graphName,
+         title=channelSourceInfo.formatString
+          ("Chimney %(chimney)s connection %(connection)s channel %(channel)s")
+         )
         
         #
         # drawing all waveforms and collecting statistics
@@ -568,9 +777,7 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
           with timers.setdefault('graph', description="graph creation"):
             graph = plotWaveformFromFile(sourcePath, sourceInfo=channelSourceInfo)
             if not graph: continue
-            ROOT.SetOwnership(graph, False)
-            graph.SetLineColor(baseColor)
-            mgraph.Add(graph, "L")
+            Renderer.addPlotToMultiplot(graph, mgraph, baseColor)
           # with graph timer
           
           with timers.setdefault('stats', description="statistics extraction"):
@@ -583,35 +790,27 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
             Vrange.add(stats['minimum']['value'])
           # with stats timer
           
+          sys.stderr.write('.')
           iSource += 1
         # for
-        if iSource == 0: 
-          pad.SetFillColor(ROOT.kRed)
+        if iSource == 0:
+          Renderer.SetRedBackgroundColor(pad)
           continue # no graphs, bail out
         
         with timers.setdefault('draw', description="multigraph drawing"):
-          ROOT.SetOwnership(mgraph, False)
-          mgraph.Draw("A")
+          Renderer.drawWaveformsOnCanvas(mgraph)
         # with draw timer
           
         with timers.setdefault('drawstats', description="statistics drawing"):
-          #
-          # setting (multi)graph graphic options
-          #
-          xAxis = mgraph.GetXaxis()
-          xAxis.SetDecimals()
-          xAxis.SetTitle("time  [s]")
-          # set the range to a minimum
-          yAxis = mgraph.GetYaxis()
-          yAxis.SetDecimals()
-          yAxis.SetTitle("signal  [V]")
           # instead of hard-coding the expected baseline of ~2.0 we use the actual
           # baseline average, rounded at 100 mV (one decimal digit)
           drawBaseline = round(baselineStats.average(), 1)
           Ymin = drawBaseline - defYamplitude
           Ymax = drawBaseline + defYamplitude
           if (Vrange.min() >= Ymin and Vrange.max() <= Ymax):
-            yAxis.SetRangeUser(Ymin - defYmargin, Ymax + defYmargin)
+            Renderer.setGraphVerticalRange \
+              (mgraph, Ymin - defYmargin, Ymax + defYmargin)
+          # if
           
           #
           # statistics box
@@ -622,27 +821,20 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
             "maximum = (%.3f #pm %.3f) V" % (maxStats.average(), maxStats.averageError()),
             "peak = %.3f V (RMS %.3f V)" % (peakStats.average(), peakStats.RMS())
             ]
-          # "none" is a hack: `TPaveText` deals with NDC and removes it from the options,
-          # then passes the options to `TPave`; if `TPave` finds an empty option string
-          # (as it does when the original option was just "NDC"), it sets a "br" default;
-          # but ROOT does not punish the presence of unsupported options.
-          statBox = ROOT.TPaveStats(0.60, 0.80 - 0.025*len(statsText), 0.98, 0.92, "NDC none")
-          statBox.SetOptStat(0); # do not print title (the other flags are ignored)
-          statBox.SetBorderSize(1)
-          statBox.SetName(mgraph.GetName() + "_stats")
-          for statText in statsText: statBox.AddText(statText)
-          statBox.SetFillColor(ROOT.kWhite)
-          statBox.SetTextFont(42) # regular (not bold) sans serif, scalable
-          statBox.Draw()
-          ROOT.SetOwnership(statBox, False)
+          Renderer.drawLegendOnCanvas(statsText, graphName + "_stats")
         # with drawstats timer
+        
       # with channel timer
     # for channels
-    canvas.cd(0)
-    
-    canvas.SetTitle(sourceInfo.formatString("Waveforms from chimney %(chimney)s, connection %(connection)s") + ", channels %d-%d" % (channelRange.min(), channelRange.max()))
-    canvas.Draw()
-    
+    Renderer.finalizeCanvas(
+      canvas,
+      title=(
+        sourceInfo.formatString
+          ("%(test)s waveforms from chimney %(chimney)s, connection %(connection)s")
+        + ", channels %d-%d" % (channelRange.min(), channelRange.max())
+      )
+      )
+    sys.stderr.write(" done.\n")
     return canvas
   # with total timer
 # plotAllPositionWaveforms()
