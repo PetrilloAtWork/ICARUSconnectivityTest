@@ -80,6 +80,67 @@ def flatten(l):
   return fl
 # flatten()
 
+class ANSIClass:
+  
+  Black   = 0
+  Red     = 1
+  Green   = 2
+  Blue    = 4
+  Yellow  = Red + Green
+  Cyan    = Blue + Green
+  Magenta = Red + Blue
+  White   = Red + Green + Blue
+  
+  def __init__(self, colors = True):
+    self.colors = colors
+  
+  def enableColor(self, enable = True): self.colors = enable
+  
+  def fgColor(self, color, highlight = False):
+    return self._activate(ANSIClass.composeColor(
+      ANSIClass.highlight() if highlight else None, ANSIClass.fgCode(color),
+      ))
+  # fgColor()
+  
+  def red(self, highlight = False):
+    return self.fgColor(ANSIClass.Red, highlight=highlight)
+  def green(self, highlight = False):
+    return self.fgColor(ANSIClass.Green, highlight=highlight)
+  def blue(self, highlight = False):
+    return self.fgColor(ANSIClass.Blue, highlight=highlight)
+  def yellow(self, highlight = False):
+    return self.fgColor(ANSIClass.Yellow, highlight=highlight)
+  def magenta(self, highlight = False):
+    return self.fgColor(ANSIClass.Magenta, highlight=highlight)
+  def cyan(self, highlight = False):
+    return self.fgColor(ANSIClass.Cyan, highlight=highlight)
+  def white(self, highlight = True):
+    return self.fgColor(ANSIClass.White, highlight=highlight)
+  def black(self, highlight = False):
+    return self.fgColor(ANSIClass.Black, highlight=highlight)
+  def gray(self, highlight = False): return self.white(highlight=highlight)
+  
+  def _activate(self, code): return code if self.colors else ""
+  
+  @staticmethod
+  def fgCode(color): return str(30 + color)
+  
+  @staticmethod
+  def reset(): return ANSIClass.composeColor("0")
+  
+  @staticmethod
+  def highlight(): return "1"
+  
+  @staticmethod
+  def composeColor(*codes):
+    return ANSIClass.escapeCode(';'.join(filter(None, codes)) + 'm')
+  
+  @staticmethod
+  def escapeCode(code): return "\x1B[" + code
+  
+# class ANSIClass
+ANSI = ANSIClass()
+
 
 ################################################################################
 ### Reader state: describes what we are doing right now (incomplete)
@@ -326,6 +387,12 @@ class ReaderStateSequence:
     return (self.iPosition == 0) and (self.iTest == 0) and (self.iCable <= 0)
   def isAtEnd(self): return self.iCable >= self.nCables()
   
+  def hint(self):
+    """Return a hint of what to do to prepare for the next step
+    (which is the current state)."""
+    return None
+  # hint()
+  
   def goNext(self, n = 1):
     self.iPosition += 1
     if not self.isPosition():
@@ -366,6 +433,8 @@ class ReaderStateSequence:
     self.readerState.cableNo = self.cable() if self.isCable() else None
     return True
   # updateState()
+  
+  def stateStr(self): return self.readerState.stateStr()
   
   def __str__(self):
     return "Connection {cable} (#{iCable}) test {test} (#{iTest})" \
@@ -409,6 +478,156 @@ class HVandPulseSequence(ReaderStateSequence):
      tests=tests, cables=cables, positions=positions,
      )
   # __init__()
+  
+  def isLeft(self):
+    return (self.cable() >= 1) and (self.cable() <= 9)
+  def isRight(self):
+    return (self.cable() >= 10) and (self.cable() <= 18)
+  def isHV(self):
+    return self.test().upper() == "HV"
+  def isPulse(self):
+    return self.test().lower() == "pulse"
+  
+  LeftColor = ANSI.red(highlight=True)
+  RightColor = ANSI.yellow(highlight=False)
+  PositionColor = ANSI.white()
+  
+  @staticmethod
+  def colorLeft(s): return HVandPulseSequence.LeftColor + s + ANSI.reset()
+  @staticmethod
+  def colorRight(s): return HVandPulseSequence.RightColor + s + ANSI.reset()
+  @staticmethod
+  def colorPosition(p):
+    return HVandPulseSequence.PositionColor + str(p) + ANSI.reset()
+  
+  def sideColor(self):
+    if self.isLeft():
+      return HVandPulseSequence.LeftColor
+    elif self.isRight():
+      return HVandPulseSequence.RightColor
+    else:
+      return ""
+  # sideColor()
+  
+  def sideName(self):
+    if self.isLeft():
+      return "left"
+    elif self.isRight():
+      return "right"
+    else:
+      return "unknown side"
+  # sideName()
+  
+  def stateStr(self):
+    
+    # coloring
+    chimney = self.readerState.chimney # no color
+    
+    cable \
+      = "{tag}{no:02d}".format(tag=self.readerState.cableTag, no=self.cable())
+    
+    if self.isLeft():
+      cable = self.colorLeft(cable)
+    elif self.isRight():
+      cable = self.colorRight(cable)
+    
+    if self.isPulse():
+      test = (
+        "p"
+        + ANSI.white() + "u"
+        + ANSI.green() + "l"
+        + ANSI.black(highlight=True) + "s"
+        + ANSI.red(highlight=True) + "e"
+        + ANSI.reset()
+       )
+    elif self.isHV():
+      test = ANSI.cyan() + self.test() + ANSI.reset()
+    else:
+      test = self.test()
+    
+    position = self.colorPosition(self.position())
+    
+    return (
+      "Test {test} chimney {chimney} connection {cable} position {position}"
+      .format(
+        test=test,
+        chimney=chimney,
+        cable=cable,
+        position=position,
+        )
+      )
+    
+  # stateStr()
+  
+  def hint(self):
+    
+    if self.isAtEnd():
+      return "The test sequence of chimney {} is complete." \
+        .format(self.readerState.chimney)
+    
+    # in the middle of the position sequence...
+    if not self.isFirstPosition():
+      return "* just turn to {posCol}position {pos}{reset}".format(
+        posCol=self.PositionColor,
+        reset=ANSI.reset(),
+        pos=self.position(),
+        )
+    # if position
+    
+    # if changing between left and right (first position of first test)
+    #if self.isFirstTest():
+    msg = []
+    # if new slot (right to left)
+    if self.isLeft():
+      msg.append(
+        "* remove pulser and ribbon cables and switch the board to {yellow}slot {slot}{reset}"
+        .format(
+          yellow=ANSI.yellow(), reset=ANSI.reset(),
+          slot=self.readerState.cableNo,
+        ))
+    if self.isHV():
+      msg.append("* direct test box pulser output to the {sideCol}{side} HV input{reset}"
+        .format(
+          sideCol=self.sideColor(),
+          side=self.sideName(),
+          reset=ANSI.reset(),
+        ))
+    elif self.isPulse():
+      msg.append(
+        "* direct test box pulser output to the {sideCol}pulse input for {cable}{reset}"
+        .format(
+          sideCol=self.sideColor(),
+          cable=self.readerState.cable(),
+          reset=ANSI.reset(),
+        ))
+      if self.cable() in [ 1, 10, ]:
+        msg.append("* {white}test all the different pulse inputs to find the best one{reset}"
+          .format(
+            white=ANSI.white(),
+            reset=ANSI.reset(),
+          ))
+      elif self.cable() in [ 2, 9, 11, 18, ]:
+        msg.append("* {white}you may need to test different pulse inputs to find the best one{reset}"
+          .format(
+            white=ANSI.white(),
+            reset=ANSI.reset(),
+          ))
+    # if pulse
+    msg.extend([
+      "* plug the {sideCol}{side} signal ribbon{reset} into the test box".format(
+        sideCol=self.sideColor(),
+        side=self.sideName(),
+        reset=ANSI.reset(),
+        ),
+      "* turn to {posCol}position {pos}{reset}".format(
+        posCol=self.PositionColor,
+        reset=ANSI.reset(),
+        pos=self.position(),
+        ),
+      ])
+    # if ... else
+    return "\n".join(filter(None, msg)) if msg else None
+  # hint()
   
 # class HVandPulseSequence
 
@@ -483,6 +702,8 @@ class ChimneyReader:
     self.scope = TDS3054Ctalker(params.IP, connect=not params.fake)
     self.selectTestSuite(params.testSuite, chimney=chimney, N=params.N)
     
+    ANSI.enableColor(params.useColors)
+    self.nextHints = params.printHints
     self.setQuiet(True) # this will be one day removed
     self.setFake(params.fake)
     self.storageParams = params.storage
@@ -589,6 +810,18 @@ class ChimneyReader:
     logging.debug \
       ("Setting verbosity level to: {} ({})".format(logLevel, logLevelTag))
     logging.getLogger().setLevel(logLevel)
+    
+    #
+    # Colors: whether to use colors on the console output (ANSI/VT100).
+    # Default is ON.
+    #
+    localParams.useColors = getConfig.bool('Colors', True)
+    
+    #
+    # Hints: whether to print hints on how to prepare for the next data taking.
+    # Default is ON.
+    #
+    localParams.printHints = getConfig.bool('Hints', True)
     
     #
     # TestSuite: name of the test being performed (see `ChimneyReader.TestSets`)
@@ -796,7 +1029,10 @@ class ChimneyReader:
     if self.readerState.isAtEnd():
       logging.info("Chimney sequence is complete: time to `verify()` that everything is in place.")
       return False
-    logging.info("next(): {}".format(self.readerState.state().stateStr()))
+    logging.info("next(): {}".format(self.readerState.stateStr()))
+    if self.nextHints:
+      hint = self.readerState.hint()
+      if hint: logging.info("Hint:\n{}".format(hint))
     return True
   # printNext()
   
