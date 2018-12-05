@@ -362,27 +362,33 @@ class ReaderStateSequence:
     if self.cables.count(cableNo) > 1:
       raise RuntimeError(
        "Can't set cable {} since it's present in the sequence {} times."
-       .format(cable, self.cables.count(cable))
+       .format(cableNo, self.cables.count(cableNo))
        )
     # if too many cable
-    try: self.iCable = self.cables.index(cable)
+    try: self.iCable = self.cables.index(cableNo)
     except ValueError:
-      raise RuntimeError("{} is not a valid cable to set.".format(cable))
+      raise RuntimeError("{} is not a valid cable to set.".format(cableNo))
     if resetTest: self.iTest = 0
     if resetPosition: self.iPosition = 0
     self.updateState()
   # setCable()
   
   def setTest(self, test, resetPosition = False):
-    if self.tests.count(test) > 1:
+    count = 0
+    for iTest, testName in enumerate(self.tests):
+      if testName.lower() != test.lower(): continue
+      count += 1
+      pos = iTest
+    # for
+    if count > 1:
       raise RuntimeError(
        "Can't set test {} since it's present in the sequence {} times."
-       .format(test, self.tests.count(test))
+       .format(test, count)
        )
     # if too many test
-    try: self.iTest = self.tests.index(test)
-    except ValueError:
+    if count == 0:
       raise RuntimeError("{} is not a valid test to set.".format(test))
+    self.iTest = pos
     if resetPosition: self.iPosition = 0
     self.updateState()
   # setTest()
@@ -1093,7 +1099,7 @@ class ChimneyReader:
       self.readerState.setCable(cable, resetTest=False, resetPosition=True)
     if test is not None: self.readerState.setTest(test, resetPosition=True)
     if position is not None: self.readerState.setPosition(position)
-    self.readerState.updateWaveformSourceInfo(self.sourceSpecs.sourceInfo)
+    self.readerState.state().updateWaveformSourceInfo(self.sourceSpecs.sourceInfo)
     self.printNext()
   # jumpTo()
   
