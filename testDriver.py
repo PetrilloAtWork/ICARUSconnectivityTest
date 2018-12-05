@@ -16,9 +16,9 @@ __version__ = "5.0"
 
 # TODO:
 # * fix the hint message about pulse at start when doing the HV test only
-# * create proper configuration files
 # * update `README.md`
 # * cache the scope ID so that if we lose connection after verification we survive
+# * `ChimneyReader.start()` warn if the chimney has already been completed
 # * allow autodetection of the first missing position
 # * create a wrapper python script dropping to interactive
 # * make an option to reduce the confirmation of `removeLast()`
@@ -488,6 +488,8 @@ class HVandPulseSequence(ReaderStateSequence):
      )
   # __init__()
   
+  def slot(self): return 1 + (self.cable() - 1) % 9
+  
   def isLeft(self):
     return (self.cable() >= 1) and (self.cable() <= 9)
   def isRight(self):
@@ -584,15 +586,13 @@ class HVandPulseSequence(ReaderStateSequence):
     # if position
     
     # if changing between left and right (first position of first test)
-    #if self.isFirstTest():
     msg = []
-    # if new slot (right to left)
-    if self.isLeft():
+    if self.isLeft(): # new slot (right to left)
       msg.append(
         "* remove pulser and ribbon cables and switch the board to {yellow}slot {slot}{reset}"
         .format(
           yellow=ANSI.yellow(), reset=ANSI.reset(),
-          slot=self.readerState.cableNo,
+          slot=self.slot(),
         ))
     if self.isHV():
       msg.append("* direct test box pulser output to the {sideCol}{side} HV input{reset}"
@@ -610,7 +610,7 @@ class HVandPulseSequence(ReaderStateSequence):
           reset=ANSI.reset(),
         ))
       if self.cable() in [ 1, 10, ]:
-        msg.append("* {white}test all the different pulse inputs to find the best one{reset}"
+        msg.append("  => {white}test all the different pulse inputs to find the best one{reset}"
           .format(
             white=ANSI.white(),
             reset=ANSI.reset(),
@@ -741,16 +741,6 @@ class ChimneyReader:
     extracted and stored in an unfeatured object and returned to the caller for
     processing.
     """
-    try:
-      from configparser import SafeConfigParser, NoSectionError, NoOptionError
-    except ImportError:
-      from ConfigParser import SafeConfigParser, NoSectionError, NoOptionError
-    configFile = SafeConfigParser()
-    if isinstance(configurationFilePath, (str, unicode, )):
-      configurationFilePath = [ configurationFilePath, ]
-    for fileName in configurationFilePath:
-      configFile.readfp(open(fileName, 'r'), fileName)
-    
     class ConfigParams: pass
     localParams = ConfigParams()
     
@@ -779,7 +769,35 @@ class ChimneyReader:
         except (NoSectionError, NoOptionError): return default
     # class OptionDefault
     
+    try:
+      from configparser import SafeConfigParser, NoSectionError, NoOptionError
+    except ImportError:
+      from ConfigParser import SafeConfigParser, NoSectionError, NoOptionError
+    configFile = SafeConfigParser()
     getConfig = OptionDefault(configFile)
+    if isinstance(configurationFilePath, (str, unicode, )):
+      configurationFilePath = [ configurationFilePath, ]
+    readConfigurations = set()
+    while configurationFilePath:
+      fileName = configurationFilePath[0]
+      configFile.readfp(open(fileName, 'r'), fileName)
+      logging.info("Configuration file: '{}'".format(fileName))
+      readConfigurations.add(fileName)
+      del configurationFilePath[0]
+      # [Include] section
+      configDir = os.path.split(fileName)[0]
+      try: inclSection = configFile.items("Include")
+      except NoSectionError: inclSection = []
+      configFile.remove_section("Include")
+      for _, includeList in inclSection:
+        for includeFile in includeList.split():
+          if not os.path.isabs(includeFile):
+            includeFile = os.path.join(configDir, includeFile)
+          if includeFile in readConfigurations: continue
+          configurationFilePath.append(includeFile)
+        # for include files
+      # for include lines
+    # while
     
     # === BEGIN CONFIGURATION PARSING ==========================================
     #
