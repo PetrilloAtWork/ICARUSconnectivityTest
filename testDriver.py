@@ -15,13 +15,11 @@ So far, only python environment stuff is usable interactively
 __version__ = "5.0"
 
 # TODO:
-# * fix the hint message about pulse at start when doing the HV test only
 # * update `README.md`
 # * cache the scope ID so that if we lose connection after verification we survive
 # * `ChimneyReader.start()` warn if the chimney has already been completed
 # * allow autodetection of the first missing position
 # * create a wrapper python script dropping to interactive
-# * make an option to reduce the confirmation of `removeLast()`
 
 ################################################################################
 ### default settings
@@ -502,6 +500,7 @@ class HVandPulseSequence(ReaderStateSequence):
   LeftColor = ANSI.red(highlight=True)
   RightColor = ANSI.yellow(highlight=False)
   PositionColor = ANSI.white()
+  SlotColor = ANSI.green(highlight=True)
   
   @staticmethod
   def colorLeft(s): return HVandPulseSequence.LeftColor + s + ANSI.reset()
@@ -510,6 +509,7 @@ class HVandPulseSequence(ReaderStateSequence):
   @staticmethod
   def colorPosition(p):
     return HVandPulseSequence.PositionColor + str(p) + ANSI.reset()
+  
   
   def sideColor(self):
     if self.isLeft():
@@ -589,9 +589,9 @@ class HVandPulseSequence(ReaderStateSequence):
     msg = []
     if self.isLeft(): # new slot (right to left)
       msg.append(
-        "* remove pulser and ribbon cables and switch the board to {yellow}slot {slot}{reset}"
+        "* remove pulser and ribbon cables and switch the board to {slotCol}slot {slot}{reset}"
         .format(
-          yellow=ANSI.yellow(), reset=ANSI.reset(),
+          slotCol=self.SlotColor, reset=ANSI.reset(),
           slot=self.slot(),
         ))
     if self.isHV():
@@ -1110,18 +1110,30 @@ class ChimneyReader:
     # with plot namespace
   # plotLast()
   
-  def removeLast(self, n = 1):
+  def removeLast(self, n = 1, confirmMode = 1):
     if not self.skipToPrev():
       print >>sys.sdterr, "There was no previous reading! now you did it."
       return False
     
     # remove data files
     dataFiles = self.listLast()
-    if not confirm("Remove %d files from %s?" % (len(dataFiles), self.readerState.state().stateStr())):
-      print "You're the boss."
-      self.skipToNext()
-      self.printNext()
-      return False
+    if isinstance(confirmMode, int):
+      askConfirm = confirmMode > 0
+      nextConfirmMode = max(confirmMode - 1, 0)
+    else:
+      askConfirm = confirmMode
+      nextConfirmMode = confirmMode
+    # confirmMode
+    if askConfirm:
+      if not confirm("Remove %d files from %s?" % (len(dataFiles), self.readerState.state().stateStr())):
+        print "You're the boss."
+        self.skipToNext()
+        self.printNext()
+        return False
+    else: # print what we are doing
+      logging.info("Removing {nFiles} files from {state}".format
+        (nFiles=len(dataFiles), state=self.readerState.state().stateStr()))
+    # if ... else
     for path in dataFiles:
       if not os.path.exists(path):
         print >>sys.stderr, "Expected data file '%s' not found." % path
@@ -1131,7 +1143,8 @@ class ChimneyReader:
         print >>sys.stderr, "Failed to remove '%s': %s" % (filePath, e)
     # for
     
-    if (n > 1) and not self.removeLast(n-1): return False
+    if (n > 1) and not self.removeLast(n-1, confirmMode=nextConfirmMode):
+      return False
     if n == 1: self.printNext()
     return True
   # removeLast()
