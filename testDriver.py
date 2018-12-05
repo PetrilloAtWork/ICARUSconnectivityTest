@@ -16,10 +16,10 @@ __version__ = "5.0"
 
 # TODO:
 # * fix the hint message about pulse at start when doing the HV test only
-# * cache the scope ID so that if we lose connection after verification we survive
-# * allow autodetection of the first missing position
 # * create proper configuration files
 # * update `README.md`
+# * cache the scope ID so that if we lose connection after verification we survive
+# * allow autodetection of the first missing position
 # * create a wrapper python script dropping to interactive
 # * make an option to reduce the confirmation of `removeLast()`
 

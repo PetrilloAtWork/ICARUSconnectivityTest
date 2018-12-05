@@ -543,13 +543,15 @@ class ROOTrendering(VirtualRenderer):
   try: import ROOT
   except ImportError: ROOT = None
   
-  BaseColors = (
-    ROOT.kBlack,
-    ROOT.kYellow + 1,
-    ROOT.kCyan + 1,
-    ROOT.kMagenta + 1,
-    ROOT.kGreen + 1
-    )
+  if ROOT: # protect the case where ROOT is not available
+    BaseColors = (
+      ROOT.kBlack,
+      ROOT.kYellow + 1,
+      ROOT.kCyan + 1,
+      ROOT.kMagenta + 1,
+      ROOT.kGreen + 1
+      )
+  # if
   
   @staticmethod
   def detachObject(obj):
@@ -557,7 +559,11 @@ class ROOTrendering(VirtualRenderer):
     return obj
   # detachObject()
   
-  def __init__(self): pass
+  def __init__(self):
+    if not ROOTrendering.ROOT:
+      raise RuntimeError \
+        ("ROOT not available: can't instantiate `ROOTrendering` class.")
+  # __init__()
   
   def plotFromFile(self, filePath):
     return self.ROOT.TGraph(filePath, '%lg,%lg')
