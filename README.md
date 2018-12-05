@@ -53,17 +53,17 @@ Streamlined data acquisition session with `ChimneyReader`
 The operator interacts with it by creating an instance of it and invoking its callables directly from the python interpreter shell.
 From version 4, this object _requires_ a configuration file (or more).
 
-An example of the start of a data acquisition on chimney `WW04`:
+An example of the start of a data acquisition on chimney `A04`:
 ```python
 from testDriver import ChimneyReader # make `ChimneyReader` available
 reader = ChimneyReader(              # create a `ChimneyReader` object
   [                                  # configured with two configuration files:
-    "TDS3054C-base.ini",             # a basic setting one,
-    "TDS3054C-192.168.230.29.ini",   # and one overriding the `scope IP address
+    "config/TDS3054C-base.ini",           # a basic setting one,
+    "config/TDS3054C-192.168.230.29.ini", # and one overriding the `scope IP address
   ],
   fake=True                          # for this example, we don't connect to the `scope
   )
-reader.start("EW01")                 # declare we start a new chimney (can be done in constructor too)
+reader.start("A04")                 # declare we start a new chimney (can be done in constructor too)
 reader.next()                        # take the first connection + position
 reader.next()                        # take the second connection + position
 reader.next()                        # take the third connection + position; let's assume we did a mistake...
@@ -73,54 +73,82 @@ reader.next()                        # take the third connection + position agai
 ```
 This is the output of the start of the sequence above:
     
+    Python 2.7.15 (default, May 21 2018, 17:53:03) [GCC] on linux2
+    Type "help", "copyright", "credits" or "license" for more information.
     >>> from testDriver import ChimneyReader # make `ChimneyReader` available
     >>> reader = ChimneyReader(              # create a `ChimneyReader` object
     ...   [                                  # configured with two configuration files:
-    ...     "TDS3054C-base.ini",             # a basic setting one,
-    ...     "TDS3054C-192.168.230.29.ini",   # and one overriding the `scope IP address
+    ...     "config/TDS3054C-base.ini",           # a basic setting one,
+    ...     "config/TDS3054C-192.168.230.29.ini", # and one overriding the `scope IP address
     ...   ],
     ...   fake=True                          # for this example, we don't connect to the `scope
     ...   )
-    >>> reader.start("EW01")                 # declare we start a new chimney (can be done in constructor too)
-    INFO:root:Output for this chimney will be written into: 'CHIMNEY_EW01_inprogress'
-    INFO:root:next(): Chimney EW01 connection S18 position 1
+    INFO:root:Configuration file: 'config/TDS3054C-base.ini'
+    INFO:root:Configuration file: 'config/TDS3054C-192.168.230.29.ini'
+    >>> reader.start("A04")                 # declare we start a new chimney (can be done in constructor too)
+    INFO:root:Output for this chimney will be written into: 'CHIMNEY_A04_inprogress'
+    INFO:root:next(): Test pulse chimney A04 connection V01 position 1
+    INFO:root:Hint:
+    * remove pulser and ribbon cables and switch the board to slot 1
+    * direct test box pulser output to the pulse input for V01
+      => test all the different pulse inputs to find the best one
+    * plug the left signal ribbon into the test box
+    * turn to position 1
     >>> reader.next()                        # take the first connection + position
-    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH1_CHIMNEY_EW01_CONN_S18_POS_1_1.csv'
-    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH2_CHIMNEY_EW01_CONN_S18_POS_1_1.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH1_CHIMNEY_A04_CONN_V01_POS_1_1.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH2_CHIMNEY_A04_CONN_V01_POS_1_1.csv'
     [...]
-    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH3_CHIMNEY_EW01_CONN_S18_POS_1_10.csv'
-    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH4_CHIMNEY_EW01_CONN_S18_POS_1_10.csv'
-    INFO:root:next(): Chimney EW01 connection S18 position 2
+    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH3_CHIMNEY_A04_CONN_V01_POS_1_10.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH4_CHIMNEY_A04_CONN_V01_POS_1_10.csv'
+    Rendering: CH1.......... CH2.......... CH3.......... CH4.......... done.
+    INFO:root:next(): Test pulse chimney A04 connection V01 position 2
+    INFO:root:Hint:
+    * just turn to position 2
     True
     >>> reader.next()                        # take the second connection + position
-    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH1_CHIMNEY_EW01_CONN_S18_POS_2_11.csv'
-    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH2_CHIMNEY_EW01_CONN_S18_POS_2_11.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH1_CHIMNEY_A04_CONN_V01_POS_2_11.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH2_CHIMNEY_A04_CONN_V01_POS_2_11.csv'
     [...]
-    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH4_CHIMNEY_EW01_CONN_S18_POS_2_20.csv'
-    INFO:root:next(): Chimney EW01 connection S18 position 3
+    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH3_CHIMNEY_A04_CONN_V01_POS_2_20.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH4_CHIMNEY_A04_CONN_V01_POS_2_20.csv'
+    Rendering: CH1.......... CH2.......... CH3.......... CH4.......... done.
+    INFO:root:next(): Test pulse chimney A04 connection V01 position 3
+    INFO:root:Hint:
+    * just turn to position 3
     True
     >>> reader.next()                        # take the third connection + position; let's assume we did a mistake...
-    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH1_CHIMNEY_EW01_CONN_S18_POS_3_21.csv'
-    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH2_CHIMNEY_EW01_CONN_S18_POS_3_21.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH1_CHIMNEY_A04_CONN_V01_POS_3_21.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH2_CHIMNEY_A04_CONN_V01_POS_3_21.csv'
     [...]
-    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH3_CHIMNEY_EW01_CONN_S18_POS_3_30.csv'
-    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH4_CHIMNEY_EW01_CONN_S18_POS_3_30.csv'
-    INFO:root:next(): Chimney EW01 connection S18 position 4
+    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH3_CHIMNEY_A04_CONN_V01_POS_3_30.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH4_CHIMNEY_A04_CONN_V01_POS_3_30.csv'
+    Rendering: CH1.......... CH2.......... CH3.......... CH4.......... done.
+    INFO:root:next(): Test pulse chimney A04 connection V01 position 4
+    INFO:root:Hint:
+    * just turn to position 4
     True
     >>> reader.removeLast()                  # remove the last connection + position, prepare to take it again
-    Remove 40 files from Chimney EW01 connection S18 position 3? [Y/N] y
-    INFO:root:next(): Chimney EW01 connection S18 position 3
-    
+    Remove 40 files from Test PULSE chimney A04 connection V01 position 3? [Y/N] y
+    INFO:root:next(): Test pulse chimney A04 connection V01 position 3
+    INFO:root:Hint:
+    * just turn to position 3
+
     True
-    >>> reader.next();                       # take the third connection + position again
-    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH1_CHIMNEY_EW01_CONN_S18_POS_3_21.csv'
-    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH2_CHIMNEY_EW01_CONN_S18_POS_3_21.csv'
+    >>> reader.next()                        # take the third connection + position again
+    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH1_CHIMNEY_A04_CONN_V01_POS_3_21.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH2_CHIMNEY_A04_CONN_V01_POS_3_21.csv'
     [...]
-    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH3_CHIMNEY_EW01_CONN_S18_POS_3_30.csv'
-    INFO:root:Written 10000 points into 'CHIMNEY_EW01_inprogress/waveform_CH4_CHIMNEY_EW01_CONN_S18_POS_3_30.csv'
-    INFO:root:next(): Chimney EW01 connection S18 position 4
+    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH3_CHIMNEY_A04_CONN_V01_POS_3_30.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH4_CHIMNEY_A04_CONN_V01_POS_3_30.csv'
+    Rendering: CH1.......... CH2.......... CH3.......... CH4.......... done.
+    INFO:root:next(): Test pulse chimney A04 connection V01 position 4
+    INFO:root:Hint:
+    * just turn to position 4
+    True
     
 Note that both `start()` and `next()` print information about which connection and position will be tested the next time `next()` is invoked.
+By default, hints on the actions to perform next are also printed on screen.
+
 Some `ChimneyReader` useful callables:
 
 * `start()`: start the data taking of a new chimney
@@ -128,7 +156,7 @@ Some `ChimneyReader` useful callables:
 * `printNext()`: prints which connection/position the next call to `next()` is going to process
 * `removeLast()`: removes the last acquired connection/position, and sets up to aquire it again with `next()`
 * `skipToNext()`, `skipToPrev()`: prepare the next position, on the previous one, to be acquired with `next()`
-* `jumpTo(cable, position)`: jump directly to the specified cable and position
+* `jumpTo(cable, position, test)`: jump directly to the specified cable, position and test
 * `lastList()`: list (like in "returns a python list") of all data files expected to have been created in the last data acquisition
 * `plotLast()`: produces plots of the last connection/position (it's also automatically done by `next()`)
 * `verify()`: verifies the acquired data
@@ -176,6 +204,20 @@ the others will produce error messages, and the script will exit with a non-zero
 status. Rerunning the script will not copy again the files that were already
 successfully archived.
 
+
+December 2018 configurations
+=============================
+
+The following command line can be used as first entry in a python shell to
+initialise the data taking for the chimney specified in `start()` (in the
+example, `A0`, which is not a real chimney):
+
+| test type      | oscilloscope | command                                                                                                                         |
+| -------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| bias only      | scope1       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeWorkbenchTestHV_scope1.ini"); reader.start("A0")`  |
+| bias and wires | scope1       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyTest_scope1.ini"); reader.start("A0")`      |
+| bias only      | scope2       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeWorkbenchTestHV_scope2.ini"); reader.start("A0")`  |
+| bias and wires | scope2       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyTest_scope2.ini"); reader.start("A0")`      |
 
 
 Bugs

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 #
-# from testDriver import * ; reader = ChimneyReader("TDS3054C-192.168.230.29.ini", fake=True) ; reader.start("EW00")
+# from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyTest_scope1.ini"); reader.start("A0")
 # reader.next()
 #
 
@@ -12,10 +12,9 @@ So far, only python environment stuff is usable interactively
 (see `ChimneyReader`), but running from python is still quite better.
 """
 
-__version__ = "5.0"
+__version__ = "5.1"
 
 # TODO:
-# * update `README.md`
 # * cache the scope ID so that if we lose connection after verification we survive
 # * `ChimneyReader.start()` warn if the chimney has already been completed
 # * allow autodetection of the first missing position
