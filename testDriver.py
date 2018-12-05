@@ -718,6 +718,7 @@ class ChimneyReader:
     self.setFake(params.fake)
     self.storageParams = params.storage
     self.drawWaveforms = drawWaveforms.useRenderer(params.drawWaveforms)
+    self.drawOptions = params.draw
     self.canvas = None
     self.timers = WatchCollection(
       'setup'        ,
@@ -879,6 +880,17 @@ class ChimneyReader:
     except ValueError:
       localParams.drawWaveforms = getConfig('DrawWaveforms')
     # try ... except
+    
+    #
+    # Drawing options:
+    # 
+    # PlotGrid: how to arrange the plots in the canvas; valid values are defined
+    #           in `drawWaveforms.VirtualRenderer.makeWaveformCanvas()` and
+    #           include: 'horizontal', 'vertical' and 'square' (also 'default')
+    # Default: 'default'          
+    #
+    localParams.draw = {}
+    localParams.draw['grid'] = getConfig('PlotGrid', 'default')
     
     #
     # [Storage] section: parameters for moving acquired data to storage
@@ -1103,7 +1115,7 @@ class ChimneyReader:
       self.canvas = drawWaveforms.plotAllPositionWaveforms(
         self.sourceSpecs,
         canvas=self.canvas,
-        options={ 'timers': self.timers, },
+        options={ 'timers': self.timers, 'grid': self.drawOptions['grid'], },
         )
       with self.timers['graphicUpdate']:
         self.canvas.Update()

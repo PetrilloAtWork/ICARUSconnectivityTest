@@ -742,7 +742,7 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
         ("C%(test)sWaves%(chimney)s_Conn%(connection)s_Pos%(position)d")
     # if
     canvas = Renderer.makeWaveformCanvas \
-      (canvasName, sourceInfo.MaxChannels, canvas = canvas)
+      (canvasName, sourceInfo.MaxChannels, canvas=canvas, options=options)
     
     sys.stderr.write("Rendering:")
     # on each pad, draw a different channel info
