@@ -14,6 +14,15 @@ So far, only python environment stuff is usable interactively
 
 __version__ = "5.0"
 
+# TODO:
+# * fix the hint message about pulse at start when doing the HV test only
+# * cache the scope ID so that if we lose connection after verification we survive
+# * allow autodetection of the first missing position
+# * create proper configuration files
+# * update `README.md`
+# * create a wrapper python script dropping to interactive
+# * make an option to reduce the confirmation of `removeLast()`
+
 ################################################################################
 ### default settings
 
@@ -108,7 +117,7 @@ class ANSIClass:
     return self.fgColor(ANSIClass.Green, highlight=highlight)
   def blue(self, highlight = False):
     return self.fgColor(ANSIClass.Blue, highlight=highlight)
-  def yellow(self, highlight = False):
+  def yellow(self, highlight = True):
     return self.fgColor(ANSIClass.Yellow, highlight=highlight)
   def magenta(self, highlight = False):
     return self.fgColor(ANSIClass.Magenta, highlight=highlight)
@@ -147,7 +156,7 @@ ANSI = ANSIClass()
 
 class ReaderState:
   
-  ChimneyMatcher = re.compile('([EW]{2}|[A-D])([0-9]{1,2})')
+  ChimneyMatcher = re.compile('([EW]{2}|[A-D,F])([0-9]{1,2})')
   CableMatcher = re.compile('[A-Z][0-9]{2}')
   
   def __init__(self, chimney = None, N = 10, ):
@@ -647,6 +656,7 @@ class ChimneyReader:
   CableTags = {
     'EE': 'V', 'EW': 'S', 'WE': 'V', 'WW': 'S', # September 2018 nomenclature
     'A':  'V', 'B':  'S', 'C':  'V', 'D':  'S', # December 2018 nomenclature
+    'F':  'V',                                  # December 2018, flange only
     }
   
   MinPosition = 1
