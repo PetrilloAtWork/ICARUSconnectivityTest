@@ -12,7 +12,7 @@ So far, only python environment stuff is usable interactively
 (see `ChimneyReader`), but running from python is still quite better.
 """
 
-__version__ = "5.1"
+__version__ = "5.2"
 
 # TODO:
 # * `ChimneyReader.start()` warn if the chimney has already been completed
@@ -773,6 +773,12 @@ class ChimneyReader:
         except (NoSectionError, NoOptionError): return default
     # class OptionDefault
     
+    #
+    # This system is not as smart as I was hoping...
+    # I need to parse all configuration files one by one to detect all the
+    # included files, but the included files should be overridden by the
+    # includers. Therefore eventually I have to load them in reverse order.
+    #
     try:
       from configparser import SafeConfigParser, NoSectionError, NoOptionError
     except ImportError:
@@ -781,12 +787,12 @@ class ChimneyReader:
     getConfig = OptionDefault(configFile)
     if isinstance(configurationFilePath, (str, unicode, )):
       configurationFilePath = [ configurationFilePath, ]
-    readConfigurations = set()
+    readConfigurations = []
     while configurationFilePath:
       fileName = configurationFilePath[0]
       configFile.readfp(open(fileName, 'r'), fileName)
-      logging.info("Configuration file: '{}'".format(fileName))
-      readConfigurations.add(fileName)
+      logging.debug("Queued configuration file: '{}'".format(fileName))
+      readConfigurations.append(fileName)
       del configurationFilePath[0]
       # [Include] section
       configDir = os.path.split(fileName)[0]
@@ -802,6 +808,16 @@ class ChimneyReader:
         # for include files
       # for include lines
     # while
+    
+    # now reread them in the right order:
+    configFile = SafeConfigParser()
+    getConfig = OptionDefault(configFile)
+    for fileName in reversed(readConfigurations):
+      configFile.readfp(open(fileName, 'r'), fileName)
+      configFile.remove_section("Include")
+      logging.info("Configuration file: '{}'".format(fileName))
+    # for
+    
     
     # === BEGIN CONFIGURATION PARSING ==========================================
     #
