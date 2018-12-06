@@ -34,6 +34,7 @@ class ScopeTalker:
     self.address = address
     self.resourceID = 'TCPIP0::%s::INSTR' % self.address
     self.maxRetry = retries
+    self.description = "<unknown>"
     self.scope = self.connect() if connect else None
   # __init__()
   
@@ -44,6 +45,7 @@ class ScopeTalker:
       logging.error("Exception raised while connecting to '{}'".format(self.resourceID))
       raise
     self.write("HEADer OFF") # don't include the header in the responses
+    self.identify() # update description
     return self.scope
   # connect()
   
@@ -105,7 +107,12 @@ class ScopeTalker:
   def read_raw(self):
     return self.retry("read_raw")
   
-  def identify(self): return self.query("*IDN?").strip()
+  def identify(self, cached = True):
+    try: self.description = self.query("*IDN?").strip()
+    except:
+      if not cached: raise
+    return self.description
+  # identify()
   
   ###
   ### internal junk

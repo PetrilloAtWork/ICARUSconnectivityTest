@@ -15,7 +15,6 @@ So far, only python environment stuff is usable interactively
 __version__ = "5.1"
 
 # TODO:
-# * cache the scope ID so that if we lose connection after verification we survive
 # * `ChimneyReader.start()` warn if the chimney has already been completed
 # * allow autodetection of the first missing position
 # * create a wrapper python script dropping to interactive
@@ -1431,7 +1430,7 @@ From host:    {hostname}
       chimney=self.sourceSpecs.sourceInfo.chimney,
       date=time.ctime(),
       scopeName=("(fake)" if self.readerState.state().fake 
-                 else self.scope.identify()
+                 else self.scope.description
                  ),
       scopeAddress=self.scope.address,
       hostname=ChimneyReader.getHostName(),
