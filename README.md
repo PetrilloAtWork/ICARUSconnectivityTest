@@ -209,15 +209,18 @@ December 2018 configurations
 =============================
 
 The following command line can be used as first entry in a python shell to
-initialise the data taking for the chimney specified in `start()` (in the
+initialise the data taking for the chimney specified in `resume()` (in the
 example, `A0`, which is not a real chimney):
 
 | test type      | oscilloscope | command                                                                                                                         |
 | -------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| bias only      | scope1       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeWorkbenchTestHV_scope1.ini"); reader.start("A0")`  |
-| bias and wires | scope1       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyTest_scope1.ini"); reader.start("A0")`      |
-| bias only      | scope2       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeWorkbenchTestHV_scope2.ini"); reader.start("A0")`  |
-| bias and wires | scope2       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyTest_scope2.ini"); reader.start("A0")`      |
+| bias only      | scope1       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeWorkbenchTestHV_scope1.ini"); reader.resume("A0")`  |
+| bias and wires | scope1       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyTest_scope1.ini"); reader.resume("A0")`      |
+| bias only      | scope2       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeWorkbenchTestHV_scope2.ini"); reader.resume("A0")`  |
+| bias and wires | scope2       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyTest_scope2.ini"); reader.resume("A0")`      |
+
+Note that `resume()` can also in place of `start()` (if no data has been taken
+yet, the two are equivalent).
 
 
 Bugs
