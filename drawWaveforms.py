@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 
+from stopwatch import WatchCollection
 import sys
 import os
 import re
 import math
+import logging
 
 try:
   import ROOT
@@ -11,6 +13,21 @@ try:
 except ImportError:
   print >>sys.stderr, "Unable to set ROOT up. Some features will be missing."
   hasROOT = False
+
+
+################################################################################
+def capitalize(word): return word[:1].upper() + word[1:]
+def camelCase(*words):
+  try: s = words[0]
+  except IndexError: return ""
+  for word in words[1:]:
+    try:
+      if s[-1].islower(): word = capitalize(word) 
+    except IndexError: pass
+    s += word
+  # for
+  return s
+# camelCase()
 
 
 ################################################################################
@@ -22,8 +39,10 @@ class WaveformSourceInfo:
   
   def __init__(self,
    chimney=None, connection=None, channelIndex=None, position=None,
-   index=None
+   index=None,
+   testName="",
    ):
+    self.test         = testName
     self.chimney      = chimney
     self.connection   = connection
     self.position     = position
@@ -36,7 +55,7 @@ class WaveformSourceInfo:
     return WaveformSourceInfo(
       chimney=self.chimney, connection=self.connection,
       channelIndex=self.channelIndex, position=self.position,
-      index=self.index
+      index=self.index, testName=self.test,
       )
   # copy()
   
@@ -49,6 +68,8 @@ class WaveformSourceInfo:
     self.position = position
     self.updateChannel()
   def setIndex(self, index): self.index = index
+  def setFirstIndex(self, N = 10):
+    self.setIndex(self.firstIndexOf(self.position, N=N))
   def increaseIndex(self, amount = 1): self.index += amount
   
   def updateChannel(self):
@@ -64,14 +85,14 @@ class WaveformSourceInfo:
 
 
 ################################################################################
-### `WaveformSourceParser`: waveform parameter management and extraction
+### `WaveformSourceFilePath`: waveform parameter management
 
-class WaveformSourceParser:
+class WaveformSourceFilePath:
   
-  def __init__(self, path = None):
-    if path is not None: self.parse(path)
+  StandardDirectory = "CHIMNEY_%(chimney)s"
+  StandardPattern = "%(test)swaveform_CH%(channelIndex)d_CHIMNEY_%(chimney)s_CONN_%(connection)s_POS_%(position)d_%(index)d.csv"
   
-  def setup(self, chimney, connection, position, channelIndex, index, filePattern, sourceDir = ".", ):
+  def __init__(self, sourceInfo, filePattern, sourceDir = "."):
     """
     The expected pattern is:
     
@@ -80,95 +101,20 @@ class WaveformSourceParser:
     """
     self.sourceDir = sourceDir
     self.sourceFilePattern = filePattern
-    self.sourceInfo = WaveformSourceInfo(
-      chimney=chimney, connection=connection, position=position,
-      channelIndex=channelIndex, index=index
-      )
-    
+    self.sourceInfo = sourceInfo
     self.sourceInfo.updateChannel()
-    self.sourceFilePattern = filePattern
-  # setup()
+  # __init__()
   
-  def parse(self, path):
-    """
-    The expected pattern is:
-    
-    "path/waveform_CH3_CHIMNEY_EE11_CONN_V12_POS_7_62.csv"
-    
-    """
-    self.sourceDir, self.triggerFileName = os.path.split(path)
-    
-    name, ext = os.path.splitext(self.triggerFileName)
-    if ext.lower() != '.csv':
-      print >>sys.stderr, "Warning: the file '%s' has not the name of a comma-separated values file (CSV)." % path
-    tokens = name.split("_")
-    
-    self.sourceInfo = WaveformSourceInfo()
-    
-    self.sourceFilePattern = []
-    
-    iToken = 0
-    while iToken < len(tokens):
-      Token = tokens[iToken]
-      iToken += 1
-      TOKEN = Token.upper()
-      
-      if TOKEN == 'CHIMNEY':
-        try: self.sourceInfo.chimney = tokens[iToken]
-        except IndexError:
-          raise RuntimeError("Error parsing file name '%s': no chimney." % self.triggerFileName)
-        iToken += 1
-        self.sourceFilePattern.extend([ Token, "%(chimney)s", ])
-        continue
-      elif TOKEN == 'CONN':
-        try: self.sourceInfo.connection = tokens[iToken]
-        except IndexError:
-          raise RuntimeError("Error parsing file name '%s': no connection code." % self.triggerFileName)
-        iToken += 1
-        self.sourceFilePattern.extend([ Token, "%(connection)s", ])
-        continue
-      elif TOKEN == 'POS':
-        try: self.sourceInfo.position = int(tokens[iToken])
-        except IndexError:
-          raise RuntimeError("Error parsing file name '%s': no connection code." % self.triggerFileName)
-        except ValueError:
-          raise RuntimeError("Error parsing file name '%s': '%s' is not a valid position." % (self.triggerFileName, tokens[iToken]))
-        self.sourceFilePattern.extend([ Token, "%(position)s", ])
-        iToken += 1
-        continue
-      elif TOKEN == 'WAVEFORM':
-        channel = tokens[iToken]
-        if not channel.startswith('CH'):
-          raise RuntimeError("Error parsing file name '%s': '%s' is not a valid channel." % (self.triggerFileName, channel))
-        try: self.sourceInfo.setChannelIndex(int(channel[2:]))
-        except IndexError:
-          raise RuntimeError("Error parsing file name '%s': no connection code." % self.triggerFileName)
-        except ValueError:
-          raise RuntimeError("Error parsing file name '%s': '%s' is not a valid channel number." % (self.triggerFileName, channel[2:]))
-        self.sourceFilePattern.extend([ Token, "CH%(channelIndex)d", ])
-        iToken += 1
-        continue
-      else:
-        try:
-          self.sourceInfo.setIndex(int(Token))
-          self.sourceFilePattern.append('%(index)d')
-        except ValueError:
-          print >>sys.stderr, "Unexpected tag '%s' in file name '%s'" % (Token, self.triggerFileName)
-          self.sourceFilePattern.append(Token)
-      # if ... else
-    # while
-    
-    if self.sourceInfo.chimney is None: raise RuntimeError("No chimney specified in file name '%s'" % self.triggerFileName)
-    if self.sourceInfo.connection is None: raise RuntimeError("No connection specified in file name '%s'" % self.triggerFileName)
-    if self.sourceInfo.position is None: raise RuntimeError("No position specified in file name '%s'" % self.triggerFileName)
-    if self.sourceInfo.channelIndex is None: raise RuntimeError("No channel specified in file name '%s'" % self.triggerFileName)
-    if self.sourceInfo.index is None: raise RuntimeError("No index specified in file name '%s'" % self.triggerFileName)
-    
-    self.sourceInfo.updateChannel()
-    self.sourceFilePattern = "_".join(self.sourceFilePattern)
-    if ext: self.sourceFilePattern += ext
-    
-  # parse()
+  def setSourceInfo(self, sourceInfo): self.sourceInfo = sourceInfo
+  
+  def formatString(self, s):
+    info = vars(self).copy()
+    info.update(vars(self.sourceInfo))
+    return s % info
+  # formatString()
+  
+  def buildPath(self):
+    return os.path.join(self.sourceDir, self.formatString(self.sourceFilePattern))
   
   def describe(self):
     msg = "Source directory: '%s'\nPattern: '%s'" % (self.sourceDir, self.sourceFilePattern)
@@ -195,8 +141,94 @@ class WaveformSourceParser:
     return files
   # allPositionSources()
   
+# class WaveformSourceFilePath
+
+
+def parseWaveformSource(path):
+  """Parses `path` and returns a filled `WaveformSourceFilePath`.
   
-# class WaveformSourceParser
+  The expected pattern is:
+  
+  "path/waveform_CH3_CHIMNEY_EE11_CONN_V12_POS_7_62.csv"
+  
+  """
+  sourceDir, triggerFileName = os.path.split(path)
+  
+  name, ext = os.path.splitext(triggerFileName)
+  if ext.lower() != '.csv':
+    print >>sys.stderr, "Warning: the file '%s' has not the name of a comma-separated values file (CSV)." % path
+  tokens = name.split("_")
+  
+  sourceInfo = WaveformSourceInfo()
+  
+  sourceFilePattern = []
+  
+  iToken = 0
+  while iToken < len(tokens):
+    Token = tokens[iToken]
+    iToken += 1
+    TOKEN = Token.upper()
+    
+    if TOKEN == 'CHIMNEY':
+      try: sourceInfo.chimney = tokens[iToken]
+      except IndexError:
+        raise RuntimeError("Error parsing file name '%s': no chimney." % triggerFileName)
+      iToken += 1
+      sourceFilePattern.extend([ Token, "%(chimney)s", ])
+      continue
+    elif TOKEN == 'CONN':
+      try: sourceInfo.connection = tokens[iToken]
+      except IndexError:
+        raise RuntimeError("Error parsing file name '%s': no connection code." % triggerFileName)
+      iToken += 1
+      sourceFilePattern.extend([ Token, "%(connection)s", ])
+      continue
+    elif TOKEN == 'POS':
+      try: sourceInfo.position = int(tokens[iToken])
+      except IndexError:
+        raise RuntimeError("Error parsing file name '%s': no connection code." % triggerFileName)
+      except ValueError:
+        raise RuntimeError("Error parsing file name '%s': '%s' is not a valid position." % (triggerFileName, tokens[iToken]))
+      sourceFilePattern.extend([ Token, "%(position)s", ])
+      iToken += 1
+      continue
+    elif TOKEN.endswith('WAVEFORM'):
+      testName = Token[:-len('WAVEFORM')]
+      channel = tokens[iToken]
+      if not channel.startswith('CH'):
+        raise RuntimeError("Error parsing file name '%s': '%s' is not a valid channel." % (triggerFileName, channel))
+      try: sourceInfo.setChannelIndex(int(channel[2:]))
+      except IndexError:
+        raise RuntimeError("Error parsing file name '%s': no connection code." % triggerFileName)
+      except ValueError:
+        raise RuntimeError("Error parsing file name '%s': '%s' is not a valid channel number." % (triggerFileName, channel[2:]))
+      sourceFilePattern.extend([ Token, "CH%(channelIndex)d", ])
+      iToken += 1
+      continue
+    else:
+      try:
+        sourceInfo.setIndex(int(Token))
+        sourceFilePattern.append('%(index)d')
+      except ValueError:
+        print >>sys.stderr, "Unexpected tag '%s' in file name '%s'" % (Token, triggerFileName)
+        sourceFilePattern.append(Token)
+    # if ... else
+  # while
+  
+  if sourceInfo.chimney is None: raise RuntimeError("No chimney specified in file name '%s'" % triggerFileName)
+  if sourceInfo.connection is None: raise RuntimeError("No connection specified in file name '%s'" % triggerFileName)
+  if sourceInfo.position is None: raise RuntimeError("No position specified in file name '%s'" % triggerFileName)
+  if sourceInfo.channelIndex is None: raise RuntimeError("No channel specified in file name '%s'" % triggerFileName)
+  if sourceInfo.index is None: raise RuntimeError("No index specified in file name '%s'" % triggerFileName)
+  
+  sourceInfo.updateChannel()
+  sourceFilePattern = "_".join(sourceFilePattern)
+  if ext: sourceFilePattern += ext
+  
+  return WaveformSourceFilePath(sourceInfo, sourceFilePattern, sourceDir)
+  
+# parseWaveformSource()
+  
 
 
 ################################################################################
@@ -437,14 +469,243 @@ def extractStatistics(t, V):
 
 ################################################################################
 ### Waveform drawing
+################################################################################
+
+class VirtualRenderer:
+  
+  BaseColors = ()
+  
+  def __init__(self): pass
+  
+  def makeWaveformCanvas(self, canvasName, nPads, options = {}, canvas = None):
+    return None
+  
+  def selectPad(self, iPad, canvas = None): pass
+  
+  def plotFromFile(self, filePath): return None
+  
+  def graphPoints(self, graph): return 0
+  
+  def setGraphVerticalRange(self, graph, min, max): pass
+  
+  def SetRedBackgroundColor(self, canvas): pass
+  
+  def makeMultiplot(self, name, title): return None
+  
+  def addPlotToMultiplot(self, graph, mgraph, color): pass
+  
+  def drawWaveformsOnCanvas(self, graph, canvas = None): pass
+  
+  def drawLegendOnCanvas(self, legendLines, boxName, canvas = None):
+    return None
+  
+  def finalizeCanvas(self, canvas, title): pass
+
+# class VirtualRenderer
+
+################################################################################
+class MPLRendering:
+  
+  BaseColors = ()
+  
+  def __init__(self):
+    raise NotImplementedError("matplotlib rendering has not been implemented yet")
+  
+  def makeWaveformCanvas(self, canvasName, nPads, options = {}, canvas = None):
+    return None
+  
+  def selectPad(self, iPad, canvas = None): pass
+  
+  def plotFromFile(self, filePath): return None
+  
+  def graphPoints(self, graph): return 0
+  
+  def setGraphVerticalRange(self, graph, min, max): pass
+  
+  def SetRedBackgroundColor(self, canvas): pass
+  
+  def makeMultiplot(self, name, title): return None
+  
+  def addPlotToMultiplot(self, graph, mgraph, color): pass
+  
+  def drawWaveformsOnCanvas(self, graph, canvas = None): pass
+  
+  def drawLegendOnCanvas(self, legendLines, boxName, canvas = None):
+    return None
+  
+  def finalizeCanvas(self, canvas, title): pass
+
+# class MPLRendering
+
+################################################################################
+class ROOTrendering(VirtualRenderer):
+  
+  try: import ROOT
+  except ImportError: ROOT = None
+  
+  if ROOT: # protect the case where ROOT is not available
+    BaseColors = (
+      ROOT.kBlack,
+      ROOT.kYellow + 1,
+      ROOT.kCyan + 1,
+      ROOT.kMagenta + 1,
+      ROOT.kGreen + 1
+      )
+  # if
+  
+  @staticmethod
+  def detachObject(obj):
+    ROOT.SetOwnership(obj, False)
+    return obj
+  # detachObject()
+  
+  def __init__(self):
+    if not ROOTrendering.ROOT:
+      raise RuntimeError \
+        ("ROOT not available: can't instantiate `ROOTrendering` class.")
+  # __init__()
+  
+  def plotFromFile(self, filePath):
+    return self.ROOT.TGraph(filePath, '%lg,%lg')
+  
+  def graphPoints(self, graph): return graph.GetN()
+  
+  def setGraphVerticalRange(self, graph, min, max):
+    graph.GetYaxis().SetRangeUser(min, max)
+  
+  def SetRedBackgroundColor(self, canvas):
+    canvas.SetFillColor(self.ROOT.kRed)
+  
+  def makeWaveformCanvas(self,
+   canvasName,
+   nPads,
+   options = {},
+   canvas = None, # reuse
+   ):
+    if canvas is None:
+      canvas = self.ROOT.TCanvas(canvasName, canvasName)
+    else:
+      canvas.cd()
+      canvas.Clear()
+      canvas.SetName(canvasName)
+    self.detachObject(canvas)
+    if options.get("grid", "square").lower() in [ "square", "default", ]:
+      canvas.DivideSquare(nPads)
+    elif options["grid"].lower() == "vertical":
+      canvas.Divide(1, nPads)
+    elif options["grid"].lower() == "horizontal":
+      canvas.Divide(nPads, 1)
+    else:
+      raise RuntimeError("Option 'grid' has unrecognised value '%s'" % options['grid'])
+    
+    for channelIndex in range(1, nPads + 1):
+      #
+      # pad graphic options preparation
+      #
+      pad = canvas.cd(channelIndex)
+      pad.SetFillColor(self.ROOT.kWhite)
+      pad.SetLeftMargin(0.08)
+      pad.SetRightMargin(0.03)
+      pad.SetBottomMargin(0.06)
+      pad.SetGridx()
+      pad.SetGridy()
+    # for
+    
+    canvas.cd()
+    return canvas
+  # makeWaveformCanvas()
+  
+  def selectPad(self, iPad, canvas = None):
+    canvas.cd(iPad + 1)
+  
+  def makeMultiplot(self, name, title):
+    mgraph = self.ROOT.TMultiGraph()
+    mgraph.SetName(name)
+    mgraph.SetTitle(title)
+    return mgraph
+  # makeMultiplot()
+  
+  def addPlotToMultiplot(self, graph, mgraph, color):
+    self.detachObject(graph)
+    graph.SetLineColor(color)
+    mgraph.Add(graph, "L")
+  # addPlotToMultiplot()
+    
+  def drawWaveformsOnCanvas(self, graph, canvas = None):
+    self.detachObject(graph)
+    if canvas: canvas.cd()
+    graph.Draw("A")
+    
+    #
+    # setting (multi)graph graphic options
+    #
+    xAxis = graph.GetXaxis()
+    xAxis.SetDecimals()
+    xAxis.SetTitle("time  [s]")
+    # set the range to a minimum
+    yAxis = graph.GetYaxis()
+    yAxis.SetDecimals()
+    yAxis.SetTitle("signal  [V]")
+    
+  # drawWaveformsOnCanvas()
+  
+  def drawLegendOnCanvas(self, legendLines, boxName, canvas = None):
+    if canvas: canvas.cd()
+    
+    # "none" is a hack: `TPaveText` deals with NDC and removes it from the
+    # options, then passes the options to `TPave`; if `TPave` finds an empty
+    # option string (as it does when the original option was just "NDC"), it
+    # sets a "br" default; but ROOT does not punish the presence of
+    # unsupported options.
+    statBox = self.detachObject(self.ROOT.TPaveStats
+      (0.60, 0.80 - 0.025*len(legendLines), 0.98, 0.92, "NDC none"))
+    statBox.SetOptStat(0); # do not print title (the other flags are ignored)
+    statBox.SetBorderSize(1)
+    statBox.SetName(boxName)
+    for statText in legendLines: statBox.AddText(statText)
+    statBox.SetFillColor(self.ROOT.kWhite)
+    statBox.SetTextFont(42) # regular (not bold) sans serif, scalable
+    statBox.Draw()
+    return statBox
+  # drawLegendOnCanvas()
+  
+  def finalizeCanvas(self, canvas, title):
+    canvas.cd(0)
+    canvas.SetTitle(title)
+    canvas.Draw()
+  # finalizeCanvas()
+  
+# class ROOTrendering
+
+################################################################################
+RenderOptions = {
+  None:         { 'name': None,         'rendererClass': None, },
+  'NONE':       { 'name': None,         'rendererClass': None, },
+  'ROOT':       { 'name': 'ROOT',       'rendererClass': ROOTrendering, },
+  'MATPLOTLIB': { 'name': 'matplotlib', 'rendererClass': MPLRendering, },
+}
+Renderer = None
+
+def useRenderer(rendererName):
+  try:
+    RendererInfo = RenderOptions[rendererName.upper()]
+  except KeyError:
+    raise RuntimeError("Unsupported renderer: {}".format(rendererName))
+  global Renderer
+  Renderer = RendererInfo['rendererClass']()
+  return RendererInfo['name']
+# useRenderer()
+
 
 def plotWaveformFromFile(filePath, sourceInfo = None):
   
   if not os.path.exists(filePath):
     print >>sys.stderr, "Can't plot data from '%s': file not found." % (filePath)
     return None
-  graph = ROOT.TGraph(filePath, '%lg,%lg')
-  print "'%s': %d points" % (filePath, graph.GetN())
+  graph = Renderer.plotFromFile(filePath)
+  logging.debug("'{file}': {points} points"
+    .format(file=filePath, points= Renderer.graphPoints(graph))
+    )
   graphName = sourceInfo.formatString("GWaves%(chimney)s_Conn%(connection)s_Ch%(channel)d_I%(index)d")
   graphTitle = sourceInfo.formatString("Chimney %(chimney)s connection %(connection)s channel %(channel)d (%(index)d)")
   graph.SetNameTitle(graphName, graphTitle)
@@ -465,148 +726,129 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
   # waveform. We also leave some room for the eye.
   defYamplitude = 0.9
   defYmargin = 0.1
-
-  sourceInfo = sourceSpecs.sourceInfo
   
-  baseColors = ( ROOT.kBlack, ROOT.kYellow + 1, ROOT.kCyan + 1, ROOT.kMagenta + 1, ROOT.kGreen + 1)
+  timers = options.get('timers', WatchCollection(title="`plotAllPositionWaveforms()`: timings"))
   
-  channelRange = ExtremeAccumulator()
-  
-  # prepare a canvas to draw in, and split it
-  if canvasName is None:
-    canvasName = sourceInfo.formatString("CWaves%(chimney)s_Conn%(connection)s_Pos%(position)d")
-  if canvas is None:
-    canvas = ROOT.TCanvas(canvasName, canvasName)
-  else:
-    canvas.cd()
-    canvas.Clear()
-    canvas.SetName(canvasName)
-  ROOT.SetOwnership(canvas, False)
-  if options.get("grid", "square").lower() in [ "square", "default", ]:
-    canvas.DivideSquare(sourceInfo.MaxChannels)
-  elif options["grid"].lower() == "vertical":
-    canvas.Divide(1, sourceInfo.MaxChannels)
-  elif options["grid"].lower() == "horizontal":
-    canvas.Divide(sourceInfo.MaxChannels, 1)
-  else:
-    raise RuntimeError("Option 'grid' has unrecognised value '%s'" % options['grid'])
-  canvas.cd()
-  
-  # on each pad, draw a different channel info
-  for channelIndex in xrange(1, sourceInfo.MaxChannels + 1):
+  with timers.setdefault('total', description="total plot time"):
+    sourceInfo = sourceSpecs.sourceInfo
     
-    # each channel will hve a multigraph with one graph for each waveform
-    channelSourceInfo = sourceInfo.copy()
-    channelSourceInfo.setChannelIndex(channelIndex)
+    baseColors = Renderer.BaseColors
     
-    channelRange.add(channelSourceInfo.channel)
+    channelRange = ExtremeAccumulator()
     
-    #
-    # pad graphic options preparation
-    #
-    pad = canvas.cd(channelIndex)
-    pad.SetFillColor(ROOT.kWhite)
-    pad.SetLeftMargin(0.08)
-    pad.SetRightMargin(0.03)
-    pad.SetBottomMargin(0.06)
-    pad.SetGridx()
-    pad.SetGridy()
+    # prepare a canvas to draw in, and split it
+    if canvasName is None:
+      canvasName = sourceInfo.formatString \
+        ("C%(test)sWaves%(chimney)s_Conn%(connection)s_Pos%(position)d")
+    # if
+    canvas = Renderer.makeWaveformCanvas \
+      (canvasName, sourceInfo.MaxChannels, canvas=canvas, options=options)
     
-    baseColor = baseColors[channelIndex % len(baseColors)]
-    
-    mgraph = ROOT.TMultiGraph()
-    mgraph.SetName(channelSourceInfo.formatString("MG_%(chimney)s_%(connection)s_POS%(position)d_CH%(channelIndex)d"))
-    mgraph.SetTitle(channelSourceInfo.formatString("Chimney %(chimney)s connection %(connection)s channel %(channel)s"))
-    
-    #
-    # drawing all waveforms and collecting statistics
-    #
-    baselineStats = StatAccumulator()
-    baselineRMSstats = StatAccumulator()
-    maxStats = StatAccumulator()
-    peakStats = StatAccumulator()
-    Vrange = ExtremeAccumulator()
-    
-    iSource = 0
-    sourcePaths = sourceSpecs.allChannelSources(channelIndex)
-    for sourcePath in sourcePaths:
-      graph = plotWaveformFromFile(sourcePath, sourceInfo=channelSourceInfo)
-      if not graph: continue
-      ROOT.SetOwnership(graph, False)
-      graph.SetLineColor(baseColor)
+    sys.stderr.write("Rendering:")
+    # on each pad, draw a different channel info
+    for channelIndex in xrange(1, sourceInfo.MaxChannels + 1):
       
-      stats = extractStatistics(graph.GetX(), graph.GetY())
-      baselineStats.add(stats['baseline']['value'], w=stats['baseline']['error'])
-      baselineRMSstats.add(stats['baseline']['RMS'])
-      maxStats.add(stats['maximum']['value'])
-      peakStats.add(stats['peaks']['absolute']['value'])
-      Vrange.add(stats['maximum']['value'])
-      Vrange.add(stats['minimum']['value'])
+      sys.stderr.write(" CH{:d}".format(channelIndex))
       
-      mgraph.Add(graph, "L")
-      iSource += 1
-    # for
-    if iSource == 0: 
-      pad.SetFillColor(ROOT.kRed)
-      continue # no graphs, bail out
-    
-    ROOT.SetOwnership(mgraph, False)
-    mgraph.Draw("A")
-    
-    #
-    # setting (multi)graph graphic options
-    #
-    xAxis = mgraph.GetXaxis()
-    xAxis.SetDecimals()
-    xAxis.SetTitle("time  [s]")
-    # set the range to a minimum
-    yAxis = mgraph.GetYaxis()
-    yAxis.SetDecimals()
-    yAxis.SetTitle("signal  [V]")
-    # instead of hard-coding the expected baseline of ~2.0 we use the actual
-    # baseline average, rounded at 100 mV (one decimal digit)
-    drawBaseline = round(baselineStats.average(), 1)
-    Ymin = drawBaseline - defYamplitude
-    Ymax = drawBaseline + defYamplitude
-    if (Vrange.min() >= Ymin and Vrange.max() <= Ymax):
-      yAxis.SetRangeUser(Ymin - defYmargin, Ymax + defYmargin)
-    
-    #
-    # statistics box
-    #
-    statsText = [
-      "waveforms = %d" % iSource,
-      "baseline = %.3f V (RMS %.3f V)" % (baselineStats.average(), baselineRMSstats.average()),
-      "maximum = (%.3f #pm %.3f) V" % (maxStats.average(), maxStats.averageError()),
-      "peak = %.3f V (RMS %.3f V)" % (peakStats.average(), peakStats.RMS())
-      ]
-    # "none" is a hack: `TPaveText` deals with NDC and removes it from the options,
-    # then passes the options to `TPave`; if `TPave` finds an empty option string
-    # (as it does when the original option was just "NDC"), it sets a "br" default;
-    # but ROOT does not punish the presence of unsupported options.
-    statBox = ROOT.TPaveStats(0.60, 0.80 - 0.025*len(statsText), 0.98, 0.92, "NDC none")
-    statBox.SetOptStat(0); # do not print title (the other flags are ignored)
-    statBox.SetBorderSize(1)
-    statBox.SetName(mgraph.GetName() + "_stats")
-    for statText in statsText: statBox.AddText(statText)
-    statBox.SetFillColor(ROOT.kWhite)
-    statBox.SetTextFont(42) # regular (not bold) sans serif, scalable
-    statBox.Draw()
-    ROOT.SetOwnership(statBox, False)
-    
-  # for channels
-  canvas.cd(0)
-  
-  canvas.SetTitle(sourceInfo.formatString("Waveforms from chimney %(chimney)s, connection %(connection)s") + ", channels %d-%d" % (channelRange.min(), channelRange.max()))
-  canvas.Draw()
-  
-  return canvas
+      with timers.setdefault('channel', description="channel plot time"):
+        # each channel will hve a multigraph with one graph for each waveform
+        channelSourceInfo = sourceInfo.copy()
+        channelSourceInfo.setChannelIndex(channelIndex)
+        
+        Renderer.selectPad(channelIndex - 1, canvas)
+        channelRange.add(channelSourceInfo.channel)
+        
+        baseColor = baseColors[channelIndex % len(baseColors)]
+        
+        graphName = channelSourceInfo.formatString \
+          ("MG_%(chimney)s_%(connection)s_POS%(position)d_CH%(channelIndex)d")
+        mgraph = Renderer.makeMultiplot(
+         name=graphName,
+         title=channelSourceInfo.formatString
+          ("Chimney %(chimney)s connection %(connection)s channel %(channel)s")
+         )
+        
+        #
+        # drawing all waveforms and collecting statistics
+        #
+        baselineStats = StatAccumulator()
+        baselineRMSstats = StatAccumulator()
+        maxStats = StatAccumulator()
+        peakStats = StatAccumulator()
+        Vrange = ExtremeAccumulator()
+        
+        iSource = 0
+        sourcePaths = sourceSpecs.allChannelSources(channelIndex)
+        for sourcePath in sourcePaths:
+          with timers.setdefault('graph', description="graph creation"):
+            graph = plotWaveformFromFile(sourcePath, sourceInfo=channelSourceInfo)
+            if not graph: continue
+            Renderer.addPlotToMultiplot(graph, mgraph, baseColor)
+          # with graph timer
+          
+          with timers.setdefault('stats', description="statistics extraction"):
+            stats = extractStatistics(graph.GetX(), graph.GetY())
+            baselineStats.add(stats['baseline']['value'], w=stats['baseline']['error'])
+            baselineRMSstats.add(stats['baseline']['RMS'])
+            maxStats.add(stats['maximum']['value'])
+            peakStats.add(stats['peaks']['absolute']['value'])
+            Vrange.add(stats['maximum']['value'])
+            Vrange.add(stats['minimum']['value'])
+          # with stats timer
+          
+          sys.stderr.write('.')
+          iSource += 1
+        # for
+        if iSource == 0:
+          Renderer.SetRedBackgroundColor(pad)
+          continue # no graphs, bail out
+        
+        with timers.setdefault('draw', description="multigraph drawing"):
+          Renderer.drawWaveformsOnCanvas(mgraph)
+        # with draw timer
+          
+        with timers.setdefault('drawstats', description="statistics drawing"):
+          # instead of hard-coding the expected baseline of ~2.0 we use the actual
+          # baseline average, rounded at 100 mV (one decimal digit)
+          drawBaseline = round(baselineStats.average(), 1)
+          Ymin = drawBaseline - defYamplitude
+          Ymax = drawBaseline + defYamplitude
+          if (Vrange.min() >= Ymin and Vrange.max() <= Ymax):
+            Renderer.setGraphVerticalRange \
+              (mgraph, Ymin - defYmargin, Ymax + defYmargin)
+          # if
+          
+          #
+          # statistics box
+          #
+          statsText = [
+            "waveforms = %d" % iSource,
+            "baseline = %.3f V (RMS %.3f V)" % (baselineStats.average(), baselineRMSstats.average()),
+            "maximum = (%.3f #pm %.3f) V" % (maxStats.average(), maxStats.averageError()),
+            "peak = %.3f V (RMS %.3f V)" % (peakStats.average(), peakStats.RMS())
+            ]
+          Renderer.drawLegendOnCanvas(statsText, graphName + "_stats")
+        # with drawstats timer
+        
+      # with channel timer
+    # for channels
+    Renderer.finalizeCanvas(
+      canvas,
+      title=(
+        sourceInfo.formatString
+          ("%(test)s waveforms from chimney %(chimney)s, connection %(connection)s")
+        + ", channels %d-%d" % (channelRange.min(), channelRange.max())
+      )
+      )
+    sys.stderr.write(" done.\n")
+    return canvas
+  # with total timer
 # plotAllPositionWaveforms()
 
 
 def plotAllPositionsAroundFile(path, canvasName = None, canvas = None, options = {}):
   
-  sourceSpecs = WaveformSourceParser(path)
+  sourceSpecs = parseWaveformSource(path)
   print sourceSpecs.describe()
   
   return plotAllPositionWaveforms(sourceSpecs, canvasName=canvasName, canvas=canvas, options=options.get('draw', {}))
@@ -635,9 +877,9 @@ if __name__ == "__main__":
   
   plotAllPositionsAroundFile(args.fileName)
   
-  if ROOT.gPad: ROOT.gPad.SaveAs(ROOT.gPad.GetName() + ".pdf")
+  if hasROOT and ROOT.gPad: ROOT.gPad.SaveAs(ROOT.gPad.GetName() + ".pdf")
   
-  AllFiles = WaveformSourceParser(args.fileName).allPositionSources()
+  AllFiles = parseWaveformSource(args.fileName).allPositionSources()
   print "Matching files:"
   for filePath in AllFiles:
     print filePath,
