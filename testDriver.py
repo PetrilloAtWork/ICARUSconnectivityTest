@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 #
-# from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyTest_scope1.ini"); reader.start("A0")
+# from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyTest_scope1.ini"); reader.resume("A0")
 # reader.next()
 #
 
@@ -16,7 +16,6 @@ __version__ = "5.1"
 
 # TODO:
 # * `ChimneyReader.start()` warn if the chimney has already been completed
-# * allow autodetection of the first missing position
 # * create a wrapper python script dropping to interactive
 
 ################################################################################
@@ -973,25 +972,34 @@ class ChimneyReader:
   def setFake(self, fake = True): self.readerState.state().fake = fake
   
   def start(self, chimney = None, N = None):
-    
-    if N is not None: self.readerState.state().N = N
-    if chimney is not None: self.readerState.state().setChimney(chimney)
-    if not self.readerState.state().hasChimney():
-      raise RuntimeError("\"start()\"... which chimney??")
-    
-    ChimneyReader.resetReaderStateSequence(stateSeq=self.readerState)
-    
-    self.sourceSpecs = self.setupSourceSpecs()
-    
-    # here we assume that (1) `waveformInfo` is complete enough for the
-    # directory name and (2) that name is common to all the files
-    tempDir = ChimneyReader.tempDirName(self.sourceSpecs.sourceInfo)
-    try: os.makedirs(tempDir)
-    except os.error: pass # it exists, which is actually good
-    logging.info("Output for this chimney will be written into: '{}'".format(tempDir))
-    
+    tempDir = self._start(chimney=chimney, N=N)
+    logging.info \
+      ("Output for this chimney will be written into: '{}'".format(tempDir))
     self.printNext()
   # start()
+  
+  def resume(self, chimney = None, N = None, outputDir = None):
+    tempDir = self._start(chimney=chimney, N=N)
+    if not outputDir: outputDir = tempDir
+    logging.info \
+      ("Looking for data already acquired in: '{}'".format(tempDir))
+    
+    for iSkip, files in \
+     enumerate(self.expectedFilesPerPosition(sourceDir=outputDir)):
+      for fileName in files:
+        if not os.path.isfile(fileName):
+          logging.debug("Missing output file: '{}' (skip {})".format(
+            fileName, iSkip + 1,
+            ))
+          break # missing file
+      else:
+        self.skipToNext()
+        continue
+      break
+    else: iSkip += 1
+    logging.info("Found data for {} positions.".format(iSkip))
+    self.printNext()
+  # resume()
   
   def readout(self):
     # We try to avoid code duplication: since some code putting together file
@@ -1595,6 +1603,23 @@ rsync ${{FAKE:+'-n'}} -avz --chmod='ug+rw' --progress --files-from='-' "$SourceB
     return outputDir
   # _finalize()
   
+  def _start(self, chimney = None, N = None):
+    if N is not None: self.readerState.state().N = N
+    if chimney is not None: self.readerState.state().setChimney(chimney)
+    if not self.readerState.state().hasChimney():
+      raise RuntimeError("Start... which chimney??")
+    
+    ChimneyReader.resetReaderStateSequence(stateSeq=self.readerState)
+    
+    self.sourceSpecs = self.setupSourceSpecs()
+    
+    # here we assume that (1) `waveformInfo` is complete enough for the
+    # directory name and (2) that name is common to all the files
+    tempDir = ChimneyReader.tempDirName(self.sourceSpecs.sourceInfo)
+    try: os.makedirs(tempDir)
+    except os.error: pass # it exists, which is actually good
+    return tempDir
+  # _start()
   
   def _finalizeOutputFiles(self, outputDir):
     
@@ -1611,6 +1636,38 @@ rsync ${{FAKE:+'-n'}} -avz --chmod='ug+rw' --progress --files-from='-' "$SourceB
       .format(nChanged, len(expectedFiles)))
     return nChanged
   # _finalizeOutputFiles()
+  
+  
+  class ExpectedFileGenerator:
+    """Iterates through a list of all expected CSV files, one step per position.
+    """
+    def __init__(self, reader, sourceDir = None):
+      srcState = reader.readerState
+      seq = ChimneyReader.resetReaderStateSequence(
+        chimney=srcState.state().chimney,
+        N=srcState.state().N,
+        tests=srcState.tests,
+        seqClass=srcState.__class__,
+        )
+      self.sourceSpecs = reader.makeSourceSpecs \
+        (srcState.state(), sourceDir=sourceDir)
+      self.seqIter = iter(seq)
+    # __init__()
+    
+    def __iter__(self): return self
+    
+    def next(self):
+      state = next(self.seqIter).state()
+      self.sourceSpecs.sourceInfo.connection = state.cable()
+      self.sourceSpecs.sourceInfo.setPosition(state.position)
+      self.sourceSpecs.sourceInfo.test = state.test
+      return self.sourceSpecs.allPositionSources(state.N)
+    # next()
+    
+  # class ExpectedFileGenerator
+  
+  def expectedFilesPerPosition(self, sourceDir = None):
+    return ChimneyReader.ExpectedFileGenerator(self, sourceDir=sourceDir)
   
   
   @staticmethod
