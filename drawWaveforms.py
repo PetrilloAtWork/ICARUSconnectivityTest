@@ -7,13 +7,6 @@ import re
 import math
 import logging
 
-try:
-  import ROOT
-  hasROOT = True
-except ImportError:
-  print >>sys.stderr, "Unable to set ROOT up. Some features will be missing."
-  hasROOT = False
-
 
 ################################################################################
 def capitalize(word): return word[:1].upper() + word[1:]
@@ -30,8 +23,187 @@ def camelCase(*words):
 # camelCase()
 
 
+def inverseLookup(myValue, table):
+  for key, value in table.items():
+    if myValue == value: return key
+  else: raise KeyError(myValue)
+# inverseLookup()
+
+
 ################################################################################
 ### WaveformSourceInfo: data structure with waveform identification parameters
+
+class ChimneyInfo:
+  
+  @staticmethod
+  def _matchedParsing(match):
+    chimneyNumber = match.group(2).lstrip('0')
+    return ( match.group(1), int(chimneyNumber) if chimneyNumber else 0, ) \
+      if match is not None else None
+  # _matchedParsing()
+  
+  class StyleBase:
+    @classmethod
+    def split(cls, chimney):
+      match = cls.Pattern.match(chimney.upper())
+      return ChimneyInfo._matchedParsing(match) if match else None
+    @staticmethod
+    def format_(row, number):
+      return '{row}{number:02d}'.format(row=row.upper(), number=number)
+  # StyleBase
+  
+  class GeographicStyle(StyleBase):
+    Name = 'geographic'
+    Pattern = re.compile('([EW]{2})([0-9]+)')
+    
+    StandardTable = { 'EE': 'A', 'EW': 'B', 'WE': 'C', 'WW': 'D', }
+    
+    @staticmethod
+    def fromStandard(row, number):
+      return (
+        inverseLookup(row, ChimneyInfo.GeographicStyle.StandardTable),
+        21 - number,
+        )
+    # fromStandard()
+    
+    @staticmethod
+    def toStandard(row, number):
+      return ( ChimneyInfo.GeographicStyle.StandardTable[row], 21 - number )
+    
+  # GeographicStyle
+  
+  class AlphabeticStyle(StyleBase):
+    Name = 'alphabetic'
+    Pattern = re.compile('([A-D])([0-9]+)')
+    
+    @staticmethod
+    def fromStandard(row, number): return (row, number)
+    
+    @staticmethod
+    def toStandard(row, number): return (row, number)
+  
+  # AlphabeticStyle
+  
+  StandardStyle = AlphabeticStyle
+  
+  class FlangeStyle(StyleBase):
+    Name = 'flange'
+    Pattern = re.compile('(F)([0-9]+)')
+    
+    @staticmethod
+    def fromStandard(row, number):
+      raise RuntimeError(
+        "Special chimney style '{}' can't be converted from a different style"
+        .format(ChimneyInfo.FlangeStyle.Name)
+        )
+    @staticmethod
+    def toStandard(row, number):
+      raise RuntimeError(
+        "Special chimney style '{}' can't be converted to a different style"
+        .format(ChimneyInfo.FlangeStyle.Name)
+        )
+  # FlangeStyle
+  
+  class InvalidStyle(StyleBase):
+    Name = 'invalid'
+    Pattern = re.compile('')
+    @staticmethod
+    def fromStandard(row, number):
+      raise RuntimeError(
+        "Special chimney style '{}' can't be converted from a different style"
+        .format(ChimneyInfo.InvalidStyle.Name)
+        )
+    @staticmethod
+    def toStandard(row, number):
+      raise RuntimeError(
+        "Special chimney style '{}' can't be converted to a different style"
+        .format(ChimneyInfo.InvalidStyle.Name)
+        )
+  # InvalidStyle
+  
+  Styles = ( GeographicStyle, AlphabeticStyle, FlangeStyle, )
+  
+  @staticmethod
+  def styleMatcher(chimney):
+    for class_ in ChimneyInfo.Styles:
+      if class_ is ChimneyInfo.InvalidStyle: continue
+      info = class_.split(chimney)
+      if not info: continue
+      return class_, info
+    else: return ChimneyInfo.InvalidStyle, None
+  # styleMatcher()
+  
+  @staticmethod
+  def split(chimney):
+    style, info = ChimneyInfo.styleMatcher(chimney)
+    if info is None:
+      raise RuntimeError("'{}' is not a valid chimney.".format(chimney))
+    return info + tuple([ style, ])
+  # split()
+  
+  @staticmethod
+  def format_(series, n): return "{}{:02d}".format(series, n)
+  
+  @staticmethod
+  def isChimney(chimney):
+    return ChimneyInfo.splitChimney(chimney.upper()) is not None
+  
+  @staticmethod
+  def detectStyle(chimney):
+    style, _ = ChimneyInfo.styleMatcher(chimney)
+    return style.Name
+  # detectStyle()
+  
+  @staticmethod
+  def convertToStyle(style, chimney, srcStyle = None):
+    if not isinstance(style, ChimneyInfo.StyleBase):
+      styleName = style
+      style = ChimneyInfo.findStyle(styleName)
+      if style is None:
+        raise RunetimeError("Chimney name style '{}' invalid".format(styleName))
+    # if style is name
+    
+    if not srcStyle: # autodetect original style
+      srcStyle, info = ChimneyInfo.styleMatcher(chimney)
+      if srcStyle is ChimneyInfo.InvalidStyle:
+        raise RuntimeError("'{}' is not a valid chimney.".format(chimney))
+      row, number = info
+    else:
+      row, number = srcStyle.split(chimney)
+    #
+    if srcStyle is not style:
+      row, number = srcStyle.toStandard(row, number)
+      row, numner = style.fromStandard(row, number)
+    return style.format_(row, number)
+  # convertToStyle()
+  
+  @staticmethod
+  def findStyle(styleName):
+    for style in ChimneyInfo.Styles:
+      if style.Name.lower() == styleName.lower(): return style
+    else: return None
+  # findStyle()
+  
+  @staticmethod
+  def _matchedParsing(match):
+    chimneyNumber = match.group(2).lstrip('0')
+    return ( match.group(1), int(chimneyNumber) if chimneyNumber else 0, ) \
+      if match is not None else None
+  # _matchedParsing()
+  
+# class ChimneyInfo
+
+class CableInfo:
+  
+  Pattern = re.compile('[A-Z][0-9]{1,2}')
+  
+  @staticmethod
+  def isCable(cable):
+    return CableInfo.Pattern.match(cable.upper()) is not None
+  
+# class CableInfo
+
+
 
 class WaveformSourceInfo:
   
@@ -92,11 +264,13 @@ class WaveformSourceFilePath:
   StandardDirectory = "CHIMNEY_%(chimney)s"
   StandardPattern = "%(test)swaveform_CH%(channelIndex)d_CHIMNEY_%(chimney)s_CONN_%(connection)s_POS_%(position)d_%(index)d.csv"
   
-  def __init__(self, sourceInfo, filePattern, sourceDir = "."):
+  def __init__(self,
+   sourceInfo, filePattern = StandardPattern, sourceDir = ".",
+   ):
     """
     The expected pattern is:
     
-    "path/waveform_CH3_CHIMNEY_EE11_CONN_V12_POS_7_62.csv"
+    "path/HVwaveform_CH3_CHIMNEY_A11_CONN_V12_POS_7_62.csv"
     
     """
     self.sourceDir = sourceDir
@@ -473,8 +647,6 @@ def extractStatistics(t, V):
 
 class VirtualRenderer:
   
-  BaseColors = ()
-  
   def __init__(self): pass
   
   def makeWaveformCanvas(self, canvasName, nPads, options = {}, canvas = None):
@@ -501,12 +673,17 @@ class VirtualRenderer:
   
   def finalizeCanvas(self, canvas, title): pass
 
+  def baseColors(self): return tuple()
+  
+  def pause(self):
+    print "Press <Enter> to continue."
+    sys.stdin.readline()
+  # pause()
+  
 # class VirtualRenderer
 
 ################################################################################
 class MPLRendering:
-  
-  BaseColors = ()
   
   def __init__(self):
     raise NotImplementedError("matplotlib rendering has not been implemented yet")
@@ -534,33 +711,32 @@ class MPLRendering:
     return None
   
   def finalizeCanvas(self, canvas, title): pass
-
+  
+  def baseColors(self): return tuple()
+  
 # class MPLRendering
 
 ################################################################################
+class ProtectArguments:
+  def __init__(self): self.args = sys.argv
+  def __enter__(self): sys.argv = [ self.args[0] ]
+  def __exit__(self, exc_type, exc_value, traceback): sys.argv = self.args
+# class ProtectArguments
+
 class ROOTrendering(VirtualRenderer):
-  
-  try: import ROOT
-  except ImportError: ROOT = None
-  
-  if ROOT: # protect the case where ROOT is not available
-    BaseColors = (
-      ROOT.kBlack,
-      ROOT.kYellow + 1,
-      ROOT.kCyan + 1,
-      ROOT.kMagenta + 1,
-      ROOT.kGreen + 1
-      )
-  # if
   
   @staticmethod
   def detachObject(obj):
-    ROOT.SetOwnership(obj, False)
+    ROOTrendering.ROOT.SetOwnership(obj, False)
     return obj
   # detachObject()
   
   def __init__(self):
-    if not ROOTrendering.ROOT:
+    with ProtectArguments():
+      try: import ROOT
+      except ImportError: ROOT = None
+    ROOTrendering.ROOT = ROOT
+    if not ROOT:
       raise RuntimeError \
         ("ROOT not available: can't instantiate `ROOTrendering` class.")
   # __init__()
@@ -675,6 +851,18 @@ class ROOTrendering(VirtualRenderer):
     canvas.Draw()
   # finalizeCanvas()
   
+  @staticmethod
+  def baseColors():
+    ROOT = ROOTrendering.ROOT
+    return (
+      ROOT.kBlack,
+      ROOT.kYellow + 1,
+      ROOT.kCyan + 1,
+      ROOT.kMagenta + 1,
+      ROOT.kGreen + 1
+      )
+  # baseColors()
+  
 # class ROOTrendering
 
 ################################################################################
@@ -732,7 +920,7 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
   with timers.setdefault('total', description="total plot time"):
     sourceInfo = sourceSpecs.sourceInfo
     
-    baseColors = Renderer.BaseColors
+    baseColors = Renderer.baseColors()
     
     channelRange = ExtremeAccumulator()
     
@@ -858,11 +1046,6 @@ def plotAllPositionsAroundFile(path, canvasName = None, canvas = None, options =
 
 ################################################################################
 ### Test main program (run with `--help` for explanations)
-"""
-import ROOT
-from drawWaveforms import plotAllPositionAroundFile
-plotAllPositionAroundFile("/Users/petrillo/Desktop/Scope_71/CHIMNEY_EE11/waveform_CH4_CHIMNEY_EE11_CONN_V06_POS_8_80.csv")
-"""
 
 if __name__ == "__main__":
   
@@ -871,20 +1054,118 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser \
     (description='Draws all the waveforms from a specified position.')
   parser.add_argument \
-    ('fileName', type=str, help='one of the files with the waveform')
+    ('--filename', '-f', type=str, help='one of the files with the waveform')
+  parser.add_argument \
+    ('--chimney', '-C', type=str, help='chimney of the data to print')
+  parser.add_argument(
+    '--connection', '--cable', '-c', type=str,
+    help='cable of the data to be printed (e.g. "V12")'
+    )
+  parser.add_argument(
+    '--position', '-p', type=int,
+    help='test box switch position of the data to be printed'
+    )
+  parser.add_argument(
+    '--test', '-t', type=str, default="",
+    help='name of the test to be printed [%(default)s]',
+    )
+  parser.add_argument(
+    '--sourcedir', '--dir', '-d', type=str,
+    help='path where the data files this chimney are'
+    )
+  parser.add_argument(
+    '--waveforms', '-N', type=int, default=10,
+    help='number of waveforms per channel [%(default)d]'
+    )
+  parser.add_argument(
+    '--scopechannel', '-s', type=int,
+    help='oscilloscope channel'
+    )
+  parser.add_argument(
+    '--index', '-i', type=int,
+    help='index of the waveform at the given position',
+    )
+  parser.add_argument('--render', '-R', type=str,
+    choices=[ 'ROOT', 'matplotlib', ], default='ROOT',
+    help='render system to be used [%(default)s]',
+    )
+  parser.add_argument(
+    '--windowname', type=str,
+    help='name of the window being drawn'
+    )
+  parser.add_argument("--saveas", action="append", default=[], type=str,
+    help="formats to save a picture of the plots in"
+    )
+  parser.add_argument("--pause", "-P", action="store_true",
+    help="waits for user input after drawing the waveforms")
   
   args = parser.parse_args()
   
-  plotAllPositionsAroundFile(args.fileName)
+  if args.filename:
+    if args.chimney:
+      logging.error("File name specified: chimney argument IGNORED.")
+    if args.connection:
+      logging.error("File name specified: connection argument IGNORED.")
+    if args.position:
+      logging.error("File name specified: position argument IGNORED.")
+    if args.test:
+      logging.error("File name specified: test argument IGNORED.")
+  else:
+    if args.chimney is None:
+      raise RuntimeError \
+        ("Chimney argument is REQUIRED (unless filename is specified.")
+    if args.connection is None:
+      raise RuntimeError \
+        ("Connection argument is REQUIRED (unless filename is specified.")
+    if args.position is None:
+      raise RuntimeError \
+        ("Position argument is REQUIRED (unless filename is specified.")
+    if args.scopechannel is None:
+      args.scopechannel = 1
+  #
   
-  if hasROOT and ROOT.gPad: ROOT.gPad.SaveAs(ROOT.gPad.GetName() + ".pdf")
+  useRenderer(args.render)
   
-  AllFiles = parseWaveformSource(args.fileName).allPositionSources()
+  if args.filename:
+    sourceSpecs = parseWaveformSource(args.filename)
+  else:
+    # figure out the name from the information provided
+    if args.sourcedir is None: args.sourcedir = "CHIMNEY_" + str(args.chimney)
+    
+    sourceInfo = WaveformSourceInfo(
+      chimney=args.chimney,
+      connection=args.connection,
+      channelIndex=args.scopechannel,
+      position=args.position,
+      index=args.index,
+      testName=args.test,
+      )
+    if args.index is None: sourceInfo.setFirstIndex(N=args.waveforms)
+    if args.sourcedir is None:
+      args.sourcedir \
+        = sourceInfo.formatString(WaveformSourceFilePath.StandardDirectory)
+    # if
+    sourceSpecs = WaveformSourceFilePath(sourceInfo, sourceDir=args.sourcedir)
+  #
+  
+  logging.info(sourceSpecs.describe())
+  
+  plotAllPositionWaveforms(sourceSpecs, canvasName=args.windowname)
+  
+  if isinstance(Renderer, ROOTrendering):
+    for format_ in args.saveas:
+      ROOT.gPad.SaveAs(ROOT.gPad.GetName() + "." + format_)
+  # if ROOT
+  
+  allFiles = sourceSpecs.allPositionSources()
   print "Matching files:"
-  for filePath in AllFiles:
+  for filePath in allFiles:
     print filePath,
     if not os.path.isfile(filePath): print " (NOT FOUND)",
     print
   # for
+  
+  if args.pause: Renderer.pause()
+  elif Renderer: logging.info("Reminder: use `--pause` to stop after drawing.")
   
 # main

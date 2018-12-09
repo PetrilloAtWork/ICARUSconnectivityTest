@@ -151,9 +151,6 @@ ANSI = ANSIClass()
 
 class ReaderState:
   
-  ChimneyMatcher = re.compile('([EW]{2}|[A-D,F])([0-9]{1,2})')
-  CableMatcher = re.compile('[A-Z][0-9]{2}')
-  
   def __init__(self, chimney = None, N = 10, ):
     self.enabled = False
     self.confirm = True
@@ -184,35 +181,18 @@ class ReaderState:
       self.chimneySeries = None
       self.chimneyNumber = 0
       return
-    info = ReaderState.splitChimney(chimney.upper())
-    if info is None:
-      raise RuntimeError("ReaderState.setChimney('{}'): invalid chimney."
-                         .format(chimney))
-    self.chimneySeries, self.chimneyNumber = info
-    self.chimney \
-      = ReaderState.formatChimney(self.chimneySeries, self.chimneyNumber)
+    try:
+      self.chimneySeries, self.chimneyNumber, style \
+        = drawWaveforms.ChimneyInfo.split(chimney.upper())
+    except RuntimeError, e:
+      raise RuntimeError \
+        ("ReaderState.setChimney('{}'): {}".format(chimney, str(e)))
+    self.chimney = drawWaveforms.ChimneyInfo.format_ \
+      (self.chimneySeries, self.chimneyNumber)
+    self.chimneyStyle = style
     self.cableTag = ChimneyReader.CableTags[self.chimneySeries]
   # setChimney()
-  
-  @staticmethod
-  def splitChimney(chimney):
-    info = ReaderState.ChimneyMatcher.match(chimney.upper())
-    chimneyNumber = info.group(2).lstrip('0')
-    return ( info.group(1), int(chimneyNumber) if chimneyNumber else 0, ) \
-      if info is not None else None
-  # splitChimney()
-  
-  @staticmethod
-  def formatChimney(series, n): return "{}{:02d}".format(series, n)
-  
-  @staticmethod
-  def isChimney(chimney):
-    return ReaderState.splitChimney(chimney.upper()) is not None
-  
-  @staticmethod
-  def isCable(cable):
-    return ReaderState.CableMatcher.match(cable.upper()) is not None
-  
+    
   def cable(self): return "%(cableTag)s%(cableNo)02d" % vars(self)
   
   def firstIndex(self):
