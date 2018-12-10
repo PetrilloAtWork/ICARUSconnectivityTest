@@ -121,11 +121,11 @@ class ChimneyInfo:
         )
   # InvalidStyle
   
-  Styles = ( GeographicStyle, AlphabeticStyle, FlangeStyle, )
+  ValidStyles = ( GeographicStyle, AlphabeticStyle, FlangeStyle, )
   
   @staticmethod
   def styleMatcher(chimney):
-    for class_ in ChimneyInfo.Styles:
+    for class_ in ChimneyInfo.ValidStyles:
       if class_ is ChimneyInfo.InvalidStyle: continue
       info = class_.split(chimney)
       if not info: continue
@@ -750,7 +750,7 @@ class ROOTrendering(VirtualRenderer):
     graph.GetYaxis().SetRangeUser(min, max)
   
   def SetRedBackgroundColor(self, canvas):
-    canvas.SetFillColor(self.ROOT.kRed)
+    self.ROOT.gPad.SetFillColor(self.ROOT.kRed)
   
   def makeWaveformCanvas(self,
    canvasName,
@@ -988,7 +988,7 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
           iSource += 1
         # for
         if iSource == 0:
-          Renderer.SetRedBackgroundColor(pad)
+          Renderer.SetRedBackgroundColor()
           continue # no graphs, bail out
         
         with timers.setdefault('draw', description="multigraph drawing"):
@@ -1092,6 +1092,11 @@ if __name__ == "__main__":
   parser.add_argument(
     '--windowname', type=str,
     help='name of the window being drawn'
+    )
+  parser.add_argument(
+    '--chimneystyle', type=str,
+    choices=[ cls.Name for cls in ChimneyInfo.ValidStyles ],
+    help="select a different style of chimney name for file lookup"
     )
   parser.add_argument("--saveas", action="append", default=[], type=str,
     help="formats to save a picture of the plots in"

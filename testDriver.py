@@ -659,6 +659,10 @@ class ChimneyReader:
       'tests': [ 'PULSE', 'HV', ],
       'sequence': HVandPulseSequence,
       },
+    'FastFlange': {
+      'tests': [ 'PULSE', ],
+      'sequence': HVandPulseSequence,
+      },
   } # TestSets
   
   WaveformFilePattern = drawWaveforms.WaveformSourceFilePath.StandardPattern
