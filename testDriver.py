@@ -928,7 +928,7 @@ class ChimneyReader:
   def selectTestSuite(self, name, chimney = None, N = None):
     try: self.testSpecs = getCaseUnsensitive(ChimneyReader.TestSets, name)
     except KeyError:
-      raise RunetimeError(
+      raise RuntimeError(
         "Unknown test suite: '{}'\nValid test suites: {})".format(
           name, "', '".join(ChimneyReader.TestSets),
           )
