@@ -1449,7 +1449,8 @@ From host:    {hostname}
   # generateInfoFile()
   
   
-  def generateArchivalScript(self, scriptDir = None, sourceDir = None):
+  def generateArchivalScript \
+   (self, scriptDir = None, sourceDir = None, user = None):
     """Creates a script to be run to transfer all data.
     
     Run `verify()` first!
@@ -1498,7 +1499,7 @@ From host:    {hostname}
 #
 declare -r DestServer="{DestServer}"
 declare -r DestDir="{DestDir}"
-declare -r User="{User}"
+declare -r User="${{User:-{User}}}"
 
 #
 # source settings
@@ -1512,7 +1513,7 @@ rsync ${{FAKE:+'-n'}} -avz --chmod='ug+rw' --progress --files-from='-' "$SourceB
 {infoFile}""".format(
       DestServer=self.storageParams.server,
       DestDir=self.storageParams.outputDir,
-      User=self.storageParams.user,
+      User=(user if user else self.storageParams.user),
       SourceBaseDir=os.path.dirname(os.path.abspath(sourceDir)),
       infoFile=infoFilePath,
       )

@@ -184,7 +184,7 @@ generate the script, and then run it on a different shell. Do this only after
 verification has succeeded!
     
     reader.verify()
-    reader.generateArchivalScript()
+    reader.generateArchivalScript(user='username')
     
 The first step, verification, can take 5 minutes on a machine with a _fast_
 disk. This should be less time than it is needed to wrap up and set up the next
@@ -198,11 +198,14 @@ If the verification succeeds, `verify()` will rename the output directory
 marking it as not "in progress" any more, and making the CSV files read-only.
 It will also create a small text file with some metadata of the acquisition.
 It is on the renamed directory that `generateArchivalScript()` works. The script
-always attempts to archive all the (5760) files that it knows _should_ be
+always attempts to archive all the files that it knows _should_ be
 there, and if some of them are not there, the ones present will be archived,
 the others will produce error messages, and the script will exit with a non-zero
 status. Rerunning the script will not copy again the files that were already
 successfully archived.
+The optional argument `user` allows a default user different from the one
+specified in the configuration file. This "user" is used for authentication into
+the remote host where the archive is stored.
 
 
 December 2018 configurations
