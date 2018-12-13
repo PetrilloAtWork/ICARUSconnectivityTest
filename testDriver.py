@@ -1174,6 +1174,32 @@ class ChimneyReader:
   # removeLast()
   
   
+  def repeatLast(self, n = 1, force = False):
+    
+    if self.readerState.isAtStart():
+      logging.error("Nonsense. You haven't even started.")
+      return False
+    # if no last
+    
+    if not force and not confirm("Repeat the last {} steps?".format(n)):
+      print "You're the boss."
+      self.printNext()
+      return False
+    # if ... else
+    
+    self.removeLast(n=n, confirmMode=False)
+    more = self.readNext()
+    if more and (n > 1):
+      logging.info(
+        "Only the first one out of {} positions has been reread:"
+        " follow with readNext()."
+        .format(n)
+        )
+      self.printNext()
+    return more
+  # repeatLast()
+  
+  
   def checkOutput \
    (self, outputDir, thoroughness = DefaultVerificationThoroughness):
     """Scans the output directory finding if data files are missing or spurious.
