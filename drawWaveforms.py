@@ -849,6 +849,7 @@ class ROOTrendering(VirtualRenderer):
     canvas.cd(0)
     canvas.SetTitle(title)
     canvas.Draw()
+    canvas.Update()
   # finalizeCanvas()
   
   @staticmethod
@@ -988,7 +989,7 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
           iSource += 1
         # for
         if iSource == 0:
-          Renderer.SetRedBackgroundColor()
+          Renderer.SetRedBackgroundColor(canvas)
           continue # no graphs, bail out
         
         with timers.setdefault('draw', description="multigraph drawing"):
