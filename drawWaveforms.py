@@ -758,7 +758,7 @@ class ROOTrendering(VirtualRenderer):
    options = {},
    canvas = None, # reuse
    ):
-    if canvas is None:
+    if not canvas:
       canvas = self.ROOT.TCanvas(canvasName, canvasName)
     else:
       canvas.cd()
