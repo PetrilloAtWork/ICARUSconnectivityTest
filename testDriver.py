@@ -12,7 +12,7 @@ So far, only python environment stuff is usable interactively
 (see `ChimneyReader`), but running from python is still quite better.
 """
 
-__version__ = "6.0.1"
+__version__ = "6.0.2"
 
 # TODO:
 # * `ChimneyReader.start()` warn if the chimney has already been completed
@@ -654,7 +654,7 @@ class HorizontalHVandPulseSequence(ReaderStateSequence):
   Settings = {
     'normal': {
       'inverted': False,
-      'chimneySeries': [ 'A', 'C', ],
+      'chimneys': [ 'A20', 'B01', 'C20', 'D01', ],
       'cables': [
          7, 15,
          6, 14,
@@ -678,7 +678,7 @@ class HorizontalHVandPulseSequence(ReaderStateSequence):
     }, # 'normal'
     'inverted': {
       'inverted': True,
-      'chimneySeries': [ 'B', 'D', ],
+      'chimneys': [ 'A01', 'B20', 'C01', 'D20', ],
       'cables': [
          8,     # top flange
          9,  1,
@@ -709,15 +709,14 @@ class HorizontalHVandPulseSequence(ReaderStateSequence):
    positions = range(1, 9),
    ):
     #raise NotImplementedError("Need to implement '{}'".format(self.__class__.__name__))
-    chimneySeries = state.chimneySeries
     for settings in HorizontalHVandPulseSequence.Settings.values():
-      if chimneySeries not in settings['chimneySeries']: continue
+      if state.chimney not in settings['chimneys']: continue
       self.settings = settings
       break
     else:
       raise RuntimeError(
         "No HorizontalHVandPulseSequence sequence for chimney series {}"
-        .format(chimneySeries)
+        .format(state.chimney)
         )
     # for ... else
     if cables is None: cables = self.settings['cables']
