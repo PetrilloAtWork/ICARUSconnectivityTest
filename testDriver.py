@@ -12,7 +12,7 @@ So far, only python environment stuff is usable interactively
 (see `ChimneyReader`), but running from python is still quite better.
 """
 
-__version__ = "6.0.0"
+__version__ = "6.0.1"
 
 # TODO:
 # * `ChimneyReader.start()` warn if the chimney has already been completed
@@ -674,7 +674,7 @@ class HorizontalHVandPulseSequence(ReaderStateSequence):
         17, 26,
         16, 25,
         ],
-      'switchFlangeAt': 24, # first cable of the new flange
+      'cablesOnFlanges': [ 15, 18, ],
     }, # 'normal'
     'inverted': {
       'inverted': True,
@@ -698,7 +698,7 @@ class HorizontalHVandPulseSequence(ReaderStateSequence):
         32, 23,
         33, 24,
         ],
-      'switchFlangeAt': 25, # first cable of the new flange
+      'cablesOnFlanges': [ 15, 18, ],
     }, # 'inverted'
   } # Settings{}
       
@@ -725,9 +725,11 @@ class HorizontalHVandPulseSequence(ReaderStateSequence):
      state,
      tests=tests, cables=cables, positions=positions,
      )
+    self.slotAt, self.flangeAt \
+      = HorizontalHVandPulseSequence.buildSlotTable(self.settings)
   # __init__()
   
-  def slot(self): return 1 + (self.cable() - 1) % 9
+  def slot(self): return self.slotAt[self.iCable]
   
   def isLeft(self):
     return (inRange(self.cable(), 1, 7) or inRange(self.cable(), 16, 24)) \
@@ -743,7 +745,7 @@ class HorizontalHVandPulseSequence(ReaderStateSequence):
     return self.test().upper() == "HV"
   def isPulse(self):
     return self.test().lower() == "pulse"
-  
+
   LeftColor = ANSI.red(highlight=True)
   RightColor = ANSI.yellow(highlight=False)
   PositionColor = ANSI.white()
@@ -766,7 +768,6 @@ class HorizontalHVandPulseSequence(ReaderStateSequence):
   @staticmethod
   def colorMiddleFlange(s = "middle flange"):
     return HorizontalHVandPulseSequence.MiddleColor + s + ANSI.reset()
-  
   
   def sideColor(self):
     if self.isLeft():
@@ -820,13 +821,16 @@ class HorizontalHVandPulseSequence(ReaderStateSequence):
     else:
       test = self.test()
     
+    slot = self.SlotColor + "slot {}".format(self.slot()) + ANSI.reset()
+    
     position = self.colorPosition(self.position())
     
     return (
-      "Test {test} chimney {chimney} {flange} connection {cable} position {position}"
+      "Test {test} chimney {chimney} {flange} {slot} connection {cable} position {position}"
       .format(
         test=test,
         flange=flangePosition,
+        slot=slot,
         chimney=chimney,
         cable=cable,
         position=position,
@@ -843,24 +847,61 @@ class HorizontalHVandPulseSequence(ReaderStateSequence):
       msg.append("Then the test sequence of chimney {} is complete." \
         .format(self.readerState.chimney))
     elif self.isFirstPosition():
-      if self.isLeft() and not self.isFirstCable():
+      if not self.isFirstCable():
         msg.append \
           ("* check the bias voltage of the last cable (all positions)")
       msg.append(
-        "* switch the test box cable to {sideCol}{cable} ({side} side){reset}"
+        "* switch the test box cable to {sideCol}{cable} ({side} side){reset} on {slotCol}slot {slot}{reset}"
         .format(
           sideCol=self.sideColor(),
           cable=self.readerState.cable(),
           side=self.sideName(),
+          slotCol=self.SlotColor,
+          slot=self.slot(),
           reset=ANSI.reset(),
         ))
-      if self.cable() == self.settings['switchFlangeAt']:
+      if self.iCable == self.firstCableOnFlange(self.settings, flange=2):
         msg.append("  => it's on the {}".format(self.colorMiddleFlange()))
-    # if first position
+    else:
+      msg.append("* just turn to {posCol}position {pos}{reset}".format(
+        posCol=self.PositionColor,
+        reset=ANSI.reset(),
+        pos=self.position(),
+        ))
+    # if first position ... else
     return "\n".join(filter(None, msg)) if msg else None
       
   # hint()
-  
+
+  @staticmethod
+  def firstCableOnFlange(settings, flange=2):
+    return settings['cables'] \
+      [sum(settings['cablesOnFlanges'][:(flange-1)]) if (flange > 1) else 0]
+  @staticmethod
+  def buildSlotTable(settings):
+    newFlangeOn = [
+      HorizontalHVandPulseSequence.firstCableOnFlange(settings, flange=flange)
+      for flange in (1, 2, )
+      ]
+    slots = []
+    flanges = []
+    slot = 0
+    side = 1
+    flange = 0
+    for cable in settings['cables']:
+      if cable in newFlangeOn:
+        flange += 1
+        slot = 0
+      if (cable in newFlangeOn) or (side == 1):
+        slot += 1
+        side = 0
+      else: side += 1
+      slots.append(slot)
+      flanges.append(flange)
+    # for
+    return slots, flanges
+  # buildSlotTable()
+ 
 # class HorizontalHVandPulseSequence
 
 
