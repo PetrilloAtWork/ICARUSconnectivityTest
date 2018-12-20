@@ -155,14 +155,13 @@ class ChimneyInfo:
   # detectStyle()
   
   @staticmethod
-  def convertToStyle(style, chimney, srcStyle = None):
-    if not isinstance(style, ChimneyInfo.StyleBase):
+  def convertToStyleAndSplit(style, chimney, srcStyle = None):
+    if not issubclass(style, ChimneyInfo.StyleBase):
       styleName = style
       style = ChimneyInfo.findStyle(styleName)
       if style is None:
         raise RunetimeError("Chimney name style '{}' invalid".format(styleName))
     # if style is name
-    
     if not srcStyle: # autodetect original style
       srcStyle, info = ChimneyInfo.styleMatcher(chimney)
       if srcStyle is ChimneyInfo.InvalidStyle:
@@ -179,7 +178,7 @@ class ChimneyInfo:
   
   @staticmethod
   def findStyle(styleName):
-    for style in ChimneyInfo.Styles:
+    for style in ChimneyInfo.ValidStyles:
       if style.Name.lower() == styleName.lower(): return style
     else: return None
   # findStyle()
@@ -666,6 +665,8 @@ class VirtualRenderer:
   
   def addPlotToMultiplot(self, graph, mgraph, color): pass
   
+  def setObjectNameTitle(self, obj, name, title): pass
+  
   def drawWaveformsOnCanvas(self, graph, canvas = None): pass
   
   def drawLegendOnCanvas(self, legendLines, boxName, canvas = None):
@@ -673,7 +674,9 @@ class VirtualRenderer:
   
   def finalizeCanvas(self, canvas, title): pass
 
-  def baseColors(self): return tuple()
+  def updateCanvas(self, canvas): pass
+  
+  def baseColors(self): return tuple([ 0, ])
   
   def pause(self):
     print "Press <Enter> to continue."
@@ -681,6 +684,9 @@ class VirtualRenderer:
   # pause()
   
 # class VirtualRenderer
+
+################################################################################
+class NullRenderer(VirtualRenderer): pass
 
 ################################################################################
 class MPLRendering:
@@ -705,6 +711,8 @@ class MPLRendering:
   
   def addPlotToMultiplot(self, graph, mgraph, color): pass
   
+  def setObjectNameTitle(self, obj, name, title): pass
+  
   def drawWaveformsOnCanvas(self, graph, canvas = None): pass
   
   def drawLegendOnCanvas(self, legendLines, boxName, canvas = None):
@@ -712,7 +720,9 @@ class MPLRendering:
   
   def finalizeCanvas(self, canvas, title): pass
   
-  def baseColors(self): return tuple()
+  def updateCanvas(self, canvas): pass
+  
+  def baseColors(self): return tuple([ 0, ])
   
 # class MPLRendering
 
@@ -806,7 +816,10 @@ class ROOTrendering(VirtualRenderer):
     graph.SetLineColor(color)
     mgraph.Add(graph, "L")
   # addPlotToMultiplot()
-    
+  
+  def setObjectNameTitle(self, obj, name, title):
+    obj.SetNameTitle(name, title)
+  
   def drawWaveformsOnCanvas(self, graph, canvas = None):
     self.detachObject(graph)
     if canvas: canvas.cd()
@@ -852,6 +865,8 @@ class ROOTrendering(VirtualRenderer):
     canvas.Update()
   # finalizeCanvas()
   
+  def updateCanvas(self, canvas): canvas.Update()
+  
   @staticmethod
   def baseColors():
     ROOT = ROOTrendering.ROOT
@@ -868,16 +883,17 @@ class ROOTrendering(VirtualRenderer):
 
 ################################################################################
 RenderOptions = {
-  None:         { 'name': None,         'rendererClass': None, },
-  'NONE':       { 'name': None,         'rendererClass': None, },
-  'ROOT':       { 'name': 'ROOT',       'rendererClass': ROOTrendering, },
-  'MATPLOTLIB': { 'name': 'matplotlib', 'rendererClass': MPLRendering, },
+  None:         { 'name': 'none',         'rendererClass': NullRenderer, },
+  'NONE':       { 'name': 'none',         'rendererClass': NullRenderer, },
+  'ROOT':       { 'name': 'ROOT',         'rendererClass': ROOTrendering, },
+  'MATPLOTLIB': { 'name': 'matplotlib',   'rendererClass': MPLRendering, },
 }
 Renderer = None
 
 def useRenderer(rendererName):
   try:
-    RendererInfo = RenderOptions[rendererName.upper()]
+    RendererInfo \
+      = RenderOptions[None if rendererName is None else rendererName.upper() ]
   except KeyError:
     raise RuntimeError("Unsupported renderer: {}".format(rendererName))
   global Renderer
@@ -897,7 +913,7 @@ def plotWaveformFromFile(filePath, sourceInfo = None):
     )
   graphName = sourceInfo.formatString("GWaves%(chimney)s_Conn%(connection)s_Ch%(channel)d_I%(index)d")
   graphTitle = sourceInfo.formatString("Chimney %(chimney)s connection %(connection)s channel %(channel)d (%(index)d)")
-  graph.SetNameTitle(graphName, graphTitle)
+  Renderer.setObjectNameTitle(graph, graphName, graphTitle)
   return graph
   
 # plotWaveformFromFile()

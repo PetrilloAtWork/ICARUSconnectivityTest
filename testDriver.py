@@ -680,6 +680,7 @@ class ChimneyReader:
   def __init__(self,
    configurationFile,
    chimney = None,
+   renderer = None,
    IP = None, N = None, fake = None
    ):
     """Creates a new `ChimneyReader`.
@@ -1130,7 +1131,7 @@ class ChimneyReader:
         options={ 'timers': self.timers, 'grid': self.drawOptions['grid'], },
         )
       with self.timers['graphicUpdate']:
-        self.canvas.Update()
+        drawWaveforms.Renderer.updateCanvas(self.canvas)
     # with plot namespace
   # plotLast()
   
