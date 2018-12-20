@@ -1152,6 +1152,9 @@ if __name__ == "__main__":
       args.scopechannel = 1
   #
   
+  if args.chimneystyle:
+    args.chimney = ChimneyInfo.convertToStyle(args.chimneystyle, args.chimney)
+  
   useRenderer(args.render)
   
   if args.filename:
