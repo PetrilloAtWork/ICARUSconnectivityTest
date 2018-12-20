@@ -219,9 +219,11 @@ example, `A0`, which is not a real chimney):
 | -------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------- |
 | bias only      | scope1       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeWorkbenchTestHV_scope1.ini"); reader.resume("A0")`  |
 | wires only     | scope1       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyFastTest_scope1.ini"); reader.resume("A0")`  |
+| horizontal wires | scope1     | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeHorWireTest_scope1.ini"); reader.resume("A0")`  |
 | bias and wires | scope1       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyTest_scope1.ini"); reader.resume("A0")`      |
 | bias only      | scope2       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeWorkbenchTestHV_scope2.ini"); reader.resume("A0")`  |
 | wires only     | scope2       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyFastTest_scope2.ini"); reader.resume("A0")`  |
+| horizontal wires | scope2     | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeHorWireTest_scope2.ini"); reader.resume("A0")`  |
 | bias and wires | scope2       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyTest_scope2.ini"); reader.resume("A0")`      |
 
 Note that `resume()` can also in place of `start()` (if no data has been taken

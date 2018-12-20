@@ -17,12 +17,11 @@ __version__ = "5.3.1"
 # TODO:
 # * `ChimneyReader.start()` warn if the chimney has already been completed
 # * create a wrapper python script dropping to interactive
+# * compactify the output of readout
+# * check how `plotLast()` work (seems to plot the next, not the last)
+# * try to mitigate the problem when ROOT canvas is closed interactively
 
-################################################################################
-### default settings
-
-
-################################################################################
+###############################################################################
 ### importing and default setup
 import drawWaveforms
 from stopwatch import StopWatch, WatchCollection
@@ -83,6 +82,8 @@ def flatten(l):
   for item in l: fl.extend(item)
   return fl
 # flatten()
+
+def inRange(value, low, high):  return (value >= low) and (value <= high)
 
 class ANSIClass:
   
@@ -166,6 +167,23 @@ class ReaderState:
     self.fake = False
   # __init__()
   
+  def makeCopy(self, chimney = None, N = None):
+    state = self.__class__()
+    state.enabled  = self.enabled  
+    state.confirm  = self.confirm  
+    state.test     = self.test     
+    state.cableTag = self.cableTag 
+    state.cableNo  = self.cableNo  
+    state.position = self.position 
+    state.N        = self.N        if N is None else N
+    
+    state.setChimney(self.chimney if chimney is None else chimney)
+    
+    state.quiet    = self.quiet
+    state.fake     = self.fake
+    return state
+  # makeCopy()
+  
   def enable(self):
     print "All commands are now going to be executed for real."
     self.enabled = True
@@ -190,7 +208,7 @@ class ReaderState:
     self.chimney = drawWaveforms.ChimneyInfo.format_ \
       (self.chimneySeries, self.chimneyNumber)
     self.chimneyStyle = style
-    self.cableTag = ChimneyReader.CableTags[self.chimneySeries]
+    self.cableTag = ChimneyReader.cableTagFor(self.chimney)
   # setChimney()
     
   def cable(self): return "%(cableTag)s%(cableNo)02d" % vars(self)
@@ -624,6 +642,228 @@ class HVandPulseSequence(ReaderStateSequence):
 # class HVandPulseSequence
 
 
+class HorizontalHVandPulseSequence(ReaderStateSequence):
+  """Sequence for horizontal wire chimneys.
+  
+  The sequence goes from top to bottom, from left to right.
+  These coordinates are defined with respect to a person facing the chimneys.
+  
+  This also means that "left" and "right" do not refer to the flange itself
+  (that is, they do not refer to the frame based on the flange mark).
+  """
+  Settings = {
+    'normal': {
+      'inverted': False,
+      'chimneySeries': [ 'A', 'C', ],
+      'cables': [
+         7, 15,
+         6, 14,
+         5, 13,
+         4, 12,
+         3, 11,
+         2, 10,
+         1,  9,
+             8,
+        24, 33,
+        23, 32,
+        22, 31,
+        21, 30,
+        20, 29,
+        19, 28,
+        18, 27,
+        17, 26,
+        16, 25,
+        ],
+      'switchFlangeAt': 24, # first cable of the new flange
+    }, # 'normal'
+    'inverted': {
+      'inverted': True,
+      'chimneySeries': [ 'B', 'D', ],
+      'cables': [
+         8,     # top flange
+         9,  1,
+        10,  2,
+        11,  3,
+        12,  4,
+        13,  5,
+        14,  6,
+        15,  7, 
+        25, 16, # middle flange
+        26, 17,
+        27, 18,
+        28, 19,
+        29, 20,
+        30, 21,
+        31, 22,
+        32, 23,
+        33, 24,
+        ],
+      'switchFlangeAt': 25, # first cable of the new flange
+    }, # 'inverted'
+  } # Settings{}
+      
+  
+  def __init__(self, state,
+   tests = [ '' ],
+   cables = None,
+   positions = range(1, 9),
+   ):
+    #raise NotImplementedError("Need to implement '{}'".format(self.__class__.__name__))
+    chimneySeries = state.chimneySeries
+    for settings in HorizontalHVandPulseSequence.Settings.values():
+      if chimneySeries not in settings['chimneySeries']: continue
+      self.settings = settings
+      break
+    else:
+      raise RuntimeError(
+        "No HorizontalHVandPulseSequence sequence for chimney series {}"
+        .format(chimneySeries)
+        )
+    # for ... else
+    if cables is None: cables = self.settings['cables']
+    ReaderStateSequence.__init__(self,
+     state,
+     tests=tests, cables=cables, positions=positions,
+     )
+  # __init__()
+  
+  def slot(self): return 1 + (self.cable() - 1) % 9
+  
+  def isLeft(self):
+    return (inRange(self.cable(), 1, 7) or inRange(self.cable(), 16, 24)) \
+      != self.settings['inverted']
+  def isRight(self):
+    return (inRange(self.cable(), 8, 15) or inRange(self.cable(), 25, 33)) \
+      != self.settings['inverted']
+  def isTop(self):
+    return inRange(self.cable(), 1, 15)
+  def isMiddle(self):
+    return inRange(self.cable(), 16, 33)
+  def isHV(self):
+    return self.test().upper() == "HV"
+  def isPulse(self):
+    return self.test().lower() == "pulse"
+  
+  LeftColor = ANSI.red(highlight=True)
+  RightColor = ANSI.yellow(highlight=False)
+  PositionColor = ANSI.white()
+  SlotColor = ANSI.green(highlight=True)
+  TopColor = ANSI.magenta(highlight=False)
+  MiddleColor = ANSI.green(highlight=False)
+  
+  @staticmethod
+  def colorLeft(s):
+    return HorizontalHVandPulseSequence.LeftColor + s + ANSI.reset()
+  @staticmethod
+  def colorRight(s):
+    return HorizontalHVandPulseSequence.RightColor + s + ANSI.reset()
+  @staticmethod
+  def colorPosition(p):
+    return HorizontalHVandPulseSequence.PositionColor + str(p) + ANSI.reset()
+  @staticmethod
+  def colorTopFlange(s = "top flange"):
+    return HorizontalHVandPulseSequence.TopColor + s + ANSI.reset()
+  @staticmethod
+  def colorMiddleFlange(s = "middle flange"):
+    return HorizontalHVandPulseSequence.MiddleColor + s + ANSI.reset()
+  
+  
+  def sideColor(self):
+    if self.isLeft():
+      return HorizontalHVandPulseSequence.LeftColor
+    elif self.isRight():
+      return HorizontalHVandPulseSequence.RightColor
+    else:
+      return ""
+  # sideColor()
+  
+  def sideName(self):
+    if self.isLeft():
+      return "left"
+    elif self.isRight():
+      return "right"
+    else:
+      return "unknown side"
+  # sideName()
+  
+  def stateStr(self):
+    
+    # coloring
+    chimney = self.readerState.chimney # no color
+    
+    cable \
+      = "{tag}{no:02d}".format(tag=self.readerState.cableTag, no=self.cable())
+    
+    if self.isLeft():
+      cable = self.colorLeft(cable)
+    elif self.isRight():
+      cable = self.colorRight(cable)
+    
+    if self.isTop():
+      flangePosition = self.colorTopFlange()
+    elif self.isMiddle():
+      flangePosition = self.colorMiddleFlange()
+    else:
+      flangePosition = ""
+    
+    if self.isPulse():
+      test = (
+        "p"
+        + ANSI.white() + "u"
+        + ANSI.green() + "l"
+        + ANSI.black(highlight=True) + "s"
+        + ANSI.red(highlight=True) + "e"
+        + ANSI.reset()
+       )
+    elif self.isHV():
+      test = ANSI.cyan() + self.test() + ANSI.reset()
+    else:
+      test = self.test()
+    
+    position = self.colorPosition(self.position())
+    
+    return (
+      "Test {test} chimney {chimney} {flange} connection {cable} position {position}"
+      .format(
+        test=test,
+        flange=flangePosition,
+        chimney=chimney,
+        cable=cable,
+        position=position,
+        )
+      )
+    
+  # stateStr()
+  
+  def hint(self):
+    
+    msg = []
+    if self.isAtEnd():
+      msg.append("* check the bias voltage of the last cable (all positions)")
+      msg.append("Then the test sequence of chimney {} is complete." \
+        .format(self.readerState.chimney))
+    elif self.isFirstPosition():
+      if self.isLeft() and not self.isFirstCable():
+        msg.append \
+          ("* check the bias voltage of the last cable (all positions)")
+      msg.append(
+        "* switch the test box cable to {sideCol}{cable} ({side} side){reset}"
+        .format(
+          sideCol=self.sideColor(),
+          cable=self.readerState.cable(),
+          side=self.sideName(),
+          reset=ANSI.reset(),
+        ))
+      if self.cable() == self.settings['switchFlangeAt']:
+        msg.append("  => it's on the {}".format(self.colorMiddleFlange()))
+    # if first position
+    return "\n".join(filter(None, msg)) if msg else None
+      
+  # hint()
+  
+# class HorizontalHVandPulseSequence
+
+
 
 ################################################################################
 ### ChimneyReader: helper with functions for a DAQ workflow
@@ -636,11 +876,19 @@ class ChimneyReader:
   
   
   """
-  CableTags = {
-    'EE': 'V', 'EW': 'S', 'WE': 'V', 'WW': 'S', # September 2018 nomenclature
-    'A':  'V', 'B':  'S', 'C':  'V', 'D':  'S', # December 2018 nomenclature
-    'F':  'V',                                  # December 2018, flange only
-    }
+  
+  @staticmethod
+  def cableTagFor(chimney):
+    ChimneyInfo = drawWaveforms.ChimneyInfo
+    chimneySeries, chimneyNo = ChimneyInfo.convertToStyleAndSplit \
+      (ChimneyInfo.StandardStyle, chimney)
+    if chimneySeries in [ 'EE', 'WE', 'A', 'C' ]:
+      return 'C' if chimneyNo in [ 1, 20, ] else 'V'
+    elif chimneySeries in [ 'EW', 'WW', 'B', 'D' ]:
+      return 'A' if chimneyNo in [ 1, 20, ] else 'S'
+    elif chimneySeries == "F": return 'V'
+    raise RuntimeError("No cable tag for chimneys '{}'".format(chimneySeries))
+  # cableTagFor()
   
   MinPosition = 1
   MaxPosition = 8
@@ -662,6 +910,10 @@ class ChimneyReader:
     'FastFlange': {
       'tests': [ 'PULSE', ],
       'sequence': HVandPulseSequence,
+      },
+    'FastFlangeHorizontal': {
+      'tests': [ 'PULSE', ],
+      'sequence': HorizontalHVandPulseSequence,
       },
   } # TestSets
   
@@ -698,14 +950,16 @@ class ChimneyReader:
     if N is not None: params.N = N
     
     self.scope = TDS3054Ctalker(params.IP, connect=not params.fake)
-    self.selectTestSuite(params.testSuite, chimney=chimney, N=params.N)
+    self.selectTestSuite(params.testSuite)
     
     ANSI.enableColor(params.useColors)
     self.nextHints = params.printHints
+    self.readerState = self._makeFakeReaderState(chimney=chimney, N=params.N)
     self.setQuiet(True) # this will be one day removed
     self.setFake(params.fake)
     self.storageParams = params.storage
-    self.drawWaveforms = drawWaveforms.useRenderer(params.drawWaveforms)
+    self.drawWaveforms \
+     = drawWaveforms.useRenderer(renderer if renderer else params.drawWaveforms)
     self.drawOptions = params.draw
     self.canvas = None
     self.timers = WatchCollection(
@@ -926,7 +1180,7 @@ class ChimneyReader:
   # _configure()
   
   
-  def selectTestSuite(self, name, chimney = None, N = None):
+  def selectTestSuite(self, name):
     try: self.testSpecs = getCaseUnsensitive(ChimneyReader.TestSets, name)
     except KeyError:
       raise RuntimeError(
@@ -934,17 +1188,10 @@ class ChimneyReader:
           name, "', '".join(ChimneyReader.TestSets),
           )
         )
-    self.testSuiteName = name
     # try ... except
-    try:
-      if not chimney: chimney = self.readerState.state().chimney
-      if N is None: N = self.readerState.state().N
-    except AttributeError: pass
-    
-    SeqClass = self.testSpecs.get('sequence', ReaderStateSequence)
-    self.readerState = SeqClass \
-      (ReaderState(chimney=chimney, N=N), tests=self.testSpecs['tests'])
+    self.testSuiteName = name
   # selectTestSuite()
+  
   
   @staticmethod
   def usage():
@@ -1631,7 +1878,30 @@ rsync ${{FAKE:+'-n'}} -avz --chmod='ug+rw' --progress --files-from='-' "$SourceB
     return outputDir
   # _finalize()
   
+  def _makeFakeReaderState(self, chimney = None, N = None):
+    try:
+      if not chimney: chimney = self.readerState.state().chimney
+      if N is None: N = self.readerState.state().N
+    except AttributeError: pass
+    return ReaderStateSequence \
+      (ReaderState(chimney=chimney, N=N), tests=self.testSpecs['tests'])
+  # _makeFakeReaderState()
+  
+  def _makeReaderStateSequence(self, chimney = None, N = None):
+    try:
+      if not chimney: chimney = self.readerState.state().chimney
+      if N is None: N = self.readerState.state().N
+    except AttributeError: pass
+    assert chimney
+    assert N
+    
+    state = self.readerState.state().makeCopy(chimney=chimney, N=N)
+    SeqClass = self.testSpecs.get('sequence', ReaderStateSequence)
+    return SeqClass(state, tests=self.testSpecs['tests'])
+  # _makeReaderStateSequence()
+  
   def _start(self, chimney = None, N = None):
+    self.readerState = self._makeReaderStateSequence(chimney=chimney, N=N)
     if N is not None: self.readerState.state().N = N
     if chimney is not None: self.readerState.state().setChimney(chimney)
     if not self.readerState.state().hasChimney():
@@ -1809,7 +2079,7 @@ rsync ${{FAKE:+'-n'}} -avz --chmod='ug+rw' --progress --files-from='-' "$SourceB
       assert chimney is not None
       assert N is not None
       assert tests is not None
-      stateSeq = seqClass(ReaderState())
+      stateSeq = seqClass(ReaderState(chimney=chimney, N=N))
     if chimney is not None: # we are changing the chimney
       stateSeq.state().setChimney(chimney)
     if N is not None: stateSeq.state().N = N # we are changing N

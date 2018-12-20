@@ -173,7 +173,13 @@ class ChimneyInfo:
     if srcStyle is not style:
       row, number = srcStyle.toStandard(row, number)
       row, numner = style.fromStandard(row, number)
-    return style.format_(row, number)
+    return (row, number)
+  # convertToStyleAndSplit()
+  
+  @staticmethod
+  def convertToStyle(style, chimney, srcStyle = None):
+    return style.format_ \
+      (ChimneyInfo.convertToStyleAndSplit(style, chimney, srcStyle=srcStyle))
   # convertToStyle()
   
   @staticmethod
