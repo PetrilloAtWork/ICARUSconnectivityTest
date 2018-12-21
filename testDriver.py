@@ -12,7 +12,7 @@ So far, only python environment stuff is usable interactively
 (see `ChimneyReader`), but running from python is still quite better.
 """
 
-__version__ = "6.0.3"
+__version__ = "6.1.0"
 
 # TODO:
 # * `ChimneyReader.start()` warn if the chimney has already been completed
@@ -748,7 +748,7 @@ class HorizontalHVandPulseSequence(ReaderStateSequence):
     return self.test().lower() == "pulse"
 
   LeftColor = ANSI.red(highlight=True)
-  RightColor = ANSI.yellow(highlight=False)
+  RightColor = ANSI.yellow(highlight=True)
   PositionColor = ANSI.white()
   SlotColor = ANSI.green(highlight=True)
   TopColor = ANSI.magenta(highlight=False)
@@ -781,9 +781,9 @@ class HorizontalHVandPulseSequence(ReaderStateSequence):
   
   def sideName(self):
     if self.isLeft():
-      return "left"
+      return "RED"
     elif self.isRight():
-      return "right"
+      return "YELLOW"
     else:
       return "unknown side"
   # sideName()
