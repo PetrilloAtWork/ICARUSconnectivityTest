@@ -12,7 +12,7 @@ So far, only python environment stuff is usable interactively
 (see `ChimneyReader`), but running from python is still quite better.
 """
 
-__version__ = "6.0.2"
+__version__ = "6.0.3"
 
 # TODO:
 # * `ChimneyReader.start()` warn if the chimney has already been completed
@@ -654,7 +654,8 @@ class HorizontalHVandPulseSequence(ReaderStateSequence):
   Settings = {
     'normal': {
       'inverted': False,
-      'chimneys': [ 'A20', 'B01', 'C20', 'D01', ],
+      #'chimneys': [ 'A20', 'B01', 'C20', 'D01', ],
+      'chimneys': [ 'A20', 'B01', 'C20', 'D01', 'A01', 'B20', 'C01', 'D20', ],
       'cables': [
          7, 15,
          6, 14,
@@ -678,7 +679,8 @@ class HorizontalHVandPulseSequence(ReaderStateSequence):
     }, # 'normal'
     'inverted': {
       'inverted': True,
-      'chimneys': [ 'A01', 'B20', 'C01', 'D20', ],
+#      'chimneys': [ 'A01', 'B20', 'C01', 'D20', ],
+      'chimneys': [ ],
       'cables': [
          8,     # top flange
          9,  1,
@@ -923,9 +925,13 @@ class ChimneyReader:
     chimneySeries, chimneyNo = ChimneyInfo.convertToStyleAndSplit \
       (ChimneyInfo.StandardStyle, chimney)
     if chimneySeries in [ 'EE', 'WE', 'A', 'C' ]:
-      return 'C' if chimneyNo in [ 1, 20, ] else 'V'
+      if   chimneyNo == 1:  return 'D'
+      elif chimneyNo == 20: return 'C'
+      else:                 return 'V'
     elif chimneySeries in [ 'EW', 'WW', 'B', 'D' ]:
-      return 'A' if chimneyNo in [ 1, 20, ] else 'S'
+      if   chimneyNo == 1:  return 'B'
+      elif chimneyNo == 20: return 'A'
+      else:                 return 'S'
     elif chimneySeries == "F": return 'V'
     raise RuntimeError("No cable tag for chimneys '{}'".format(chimneySeries))
   # cableTagFor()
