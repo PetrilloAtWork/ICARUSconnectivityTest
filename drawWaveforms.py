@@ -667,7 +667,8 @@ def extractStatistics(t, V):
   
   stats['baseline'] = extractBaseline(t, V)
   
-  stats['peaks'] = extractPeaks(t, V, stats['baseline']['value'])
+  # while the peaks look sharp to the eye, they're spread across many samples;
+  stats['peaks'] = extractPeaks(t, V, stats['baseline']['value'], 5)
   absPeak = stats['peaks']['positive' if abs(stats['peaks']['positive']['value']) > abs(stats['peaks']['negative']['value']) else 'negative']
   
   stats['peaks']['absolute'] = {
@@ -952,6 +953,7 @@ def plotWaveformFromFile(filePath, sourceInfo = None):
   logging.debug("'{file}': {points} points"
     .format(file=filePath, points= Renderer.graphPoints(graph))
     )
+  if sourceInfo is None: sourceInfo = WaveformSourceParser(filePath).sourceInfo
   graphName = sourceInfo.formatString("GWaves%(chimney)s_Conn%(connection)s_Ch%(channel)d_I%(index)d")
   graphTitle = sourceInfo.formatString("Chimney %(chimney)s connection %(connection)s channel %(channel)d (%(index)d)")
   Renderer.setObjectNameTitle(graph, graphName, graphTitle)
