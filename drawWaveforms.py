@@ -1116,9 +1116,10 @@ def plotAllPositionsAroundFile(path, canvasName = None, canvas = None, options =
 
 
 ################################################################################
-### Test main program (run with `--help` for explanations)
+### Test main programs (run with `--help` for explanations)
 
-if __name__ == "__main__":
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+def waveformDrawer(argv):
   
   import argparse
   
@@ -1175,7 +1176,7 @@ if __name__ == "__main__":
   parser.add_argument("--pause", "-P", action="store_true",
     help="waits for user input after drawing the waveforms")
   
-  args = parser.parse_args()
+  args = parser.parse_args(args=argv[1:])
   
   if args.filename:
     if args.chimney:
@@ -1246,5 +1247,84 @@ if __name__ == "__main__":
   
   if args.pause: Renderer.pause()
   elif Renderer: logging.info("Reminder: use `--pause` to stop after drawing.")
+  
+  return 0
+# waveformDrawer()
+
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+def chimneyConverter(argv):
+  
+  import argparse
+  
+  parser = argparse.ArgumentParser \
+    (description='Converts chimney names across different conventions.')
+  parser.add_argument(
+    'chimneys', metavar='chimney', type=str, nargs="*",
+    help="chimney identificators to be converted (read from input if none)"
+    )
+  parser.add_argument(
+    '--output', '-o', type=str, required=True, # ugh
+    choices=[ cls.Name for cls in ChimneyInfo.ValidStyles ],
+    help="select the output style"
+    )
+  parser.add_argument(
+    '--input', '-i', type=str,
+    choices=[ cls.Name for cls in ChimneyInfo.ValidStyles ],
+    help="select the input style (default: autodetect)"
+    )
+  parser.add_argument(
+    '--stdin', '-I', action="store_true",
+    help="reads chimney identificators from input"
+    )
+  parser.add_argument(
+    '--verbose', '-v', action="store_true",
+    help="output in the form `INPUT CHIMNEY -> OUTPUT CHIMNEY`"
+    )
+  
+  args = parser.parse_args(args=argv[1:])
+  
+  if args.stdin and args.chimneys:
+    raise RuntimeError(
+      "Reading chimneys from standard input would ignore the ones on command line."
+      )
+  if args.stdin or not args.chimneys:
+    chimneys = sys.stdin
+  else:
+    chimneys = args.chimneys
+  # if stdin
+  
+  for chimney in chimneys:
+    for inputChimney in chimney.split():
+      inputChimney = inputChimney.strip()
+      outputChimney = ChimneyInfo.convertToStyle \
+        (args.output, inputChimney, srcStyle=args.input)
+      if args.verbose:
+        print "{} -> {}".format(inputChimney, outputChimney)
+      else:
+        print outputChimney
+    # for words
+  # for
+  
+  return 0
+# chimneyConverter()
+
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# main program dispatcher
+#
+if __name__ == "__main__":
+  
+  import sys, os
+  
+  mainPrograms = {
+    'convertchimney': chimneyConverter,
+    None: waveformDrawer, # default
+  }
+  
+  mainProgramKey = os.path.splitext(os.path.basename(sys.argv[0]))[0].lower()
+  if mainProgramKey not in mainPrograms: mainProgramKey = None
+  
+  sys.exit(mainPrograms[mainProgramKey](sys.argv))
   
 # main
