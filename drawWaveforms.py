@@ -84,7 +84,7 @@ class ChimneyInfo:
   
   # AlphabeticStyle
   
-  StandardStyle = AlphabeticStyle
+  StandardStyle = GeographicStyle
   
   class FlangeStyle(StyleBase):
     Name = 'flange'
@@ -1265,9 +1265,9 @@ def chimneyConverter(argv):
     help="chimney identificators to be converted (read from input if none)"
     )
   parser.add_argument(
-    '--output', '-o', type=str, required=True, # ugh
+    '--output', '-o', type=str, default=ChimneyInfo.StandardStyle.Name,
     choices=[ cls.Name for cls in ChimneyInfo.ValidStyles ],
-    help="select the output style"
+    help="select the output style [%(default)s]"
     )
   parser.add_argument(
     '--input', '-i', type=str,
