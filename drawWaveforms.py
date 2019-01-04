@@ -156,12 +156,15 @@ class ChimneyInfo:
   
   @staticmethod
   def convertToStyleAndSplit(style, chimney, srcStyle = None):
-    if not issubclass(style, ChimneyInfo.StyleBase):
+    try: isStyle = issubclass(style, ChimneyInfo.StyleBase)
+    except TypeError: isStyle = False
+    if isStyle:
+      styleName = style.Name
+    else:
       styleName = style
       style = ChimneyInfo.findStyle(styleName)
       if style is None:
-        raise RunetimeError("Chimney name style '{}' invalid".format(styleName))
-    # if style is name
+        raise RuntimeError("Chimney name style '{}' invalid".format(styleName))
     if not srcStyle: # autodetect original style
       srcStyle, info = ChimneyInfo.styleMatcher(chimney)
       if srcStyle is ChimneyInfo.InvalidStyle:
@@ -172,14 +175,14 @@ class ChimneyInfo:
     #
     if srcStyle is not style:
       row, number = srcStyle.toStandard(row, number)
-      row, numner = style.fromStandard(row, number)
+      row, number = style.fromStandard(row, number)
     return (row, number)
   # convertToStyleAndSplit()
   
   @staticmethod
   def convertToStyle(style, chimney, srcStyle = None):
     return style.format_ \
-      (ChimneyInfo.convertToStyleAndSplit(style, chimney, srcStyle=srcStyle))
+      (*ChimneyInfo.convertToStyleAndSplit(style, chimney, srcStyle=srcStyle))
   # convertToStyle()
   
   @staticmethod
