@@ -1233,8 +1233,9 @@ def waveformDrawer(argv):
   plotAllPositionWaveforms(sourceSpecs, canvasName=args.windowname)
   
   if isinstance(Renderer, ROOTrendering):
+    import ROOT
     for format_ in args.saveas:
-      ROOT.gPad.SaveAs(ROOT.gPad.GetName() + "." + format_)
+      ROOT.gPad.SaveAs(ROOT.gPad.GetName() + "." + format_.lstrip('.'))
   # if ROOT
   
   allFiles = sourceSpecs.allPositionSources()
