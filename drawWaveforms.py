@@ -341,7 +341,7 @@ def parseWaveformSource(path):
   
   The expected pattern is:
   
-  "path/waveform_CH3_CHIMNEY_EE11_CONN_V12_POS_7_62.csv"
+  "path/PULSEwaveform_CH3_CHIMNEY_EE11_CONN_V12_POS_7_62.csv"
   
   """
   sourceDir, triggerFileName = os.path.split(path)
@@ -996,7 +996,7 @@ def plotWaveformFromFile(filePath, sourceInfo = None):
   logging.debug("'{file}': {points} points"
     .format(file=filePath, points= Renderer.graphPoints(graph))
     )
-  if sourceInfo is None: sourceInfo = WaveformSourceParser(filePath).sourceInfo
+  if sourceInfo is None: sourceInfo = parseWaveformSource(filePath).sourceInfo
   graphName = sourceInfo.formatString("GWaves%(chimney)s_Conn%(connection)s_Ch%(channel)d_I%(index)d")
   graphTitle = sourceInfo.formatString("Chimney %(chimney)s connection %(connection)s channel %(channel)d (%(index)d)")
   Renderer.setObjectNameTitle(graph, graphName, graphTitle)
@@ -1216,7 +1216,7 @@ def statAllPositionWaveforms(sourceSpecs):
 
 def statAllPositionAroundFile(path, options = {}):
     
-  sourceSpecs = WaveformSourceParser(path)
+  sourceSpecs = parseWaveformSource(path)
   print sourceSpecs.describe()
   
   stats = statAllPositionWaveforms(sourceSpecs)
