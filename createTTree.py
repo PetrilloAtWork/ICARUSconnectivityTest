@@ -78,17 +78,22 @@ if __name__ == "__main__":
   
   row = args.row
   nChimneysARow = 20
-  nConnections  = 18
+  nConnections  = 18  # Will be set to 33 for the corner chimneys, chimney 1 and 20.
   nPositions    = 8
   nChannels     = nPositions*4
 
 
 
-  for iChimney in xrange( 2, nChimneysARow ):
+  for iChimney in xrange( 1, nChimneysARow+1 ):
     ChimneyName = '%s%02d' % (row, iChimney)
     if ChimneyName in ChimneyBlacklist:
       print 'Chimney "%s" is blacklisted: skipped!' % ChimneyName
       continue
+
+    if iChimney == 1 or iChimney == 20:
+      nConnections = 33
+    else:
+      nConnections = 18
       
     for iConnection in xrange( 1, nConnections+1 ):
       for iPosition in xrange ( 1, nPositions+1 ):
