@@ -5,6 +5,7 @@ import sys
 import os
 import re
 import math
+import csv
 import logging
 
 
@@ -28,6 +29,20 @@ def inverseLookup(myValue, table):
     if myValue == value: return key
   else: raise KeyError(myValue)
 # inverseLookup()
+
+
+def readWaveformFile(path):
+  # here we keep it very simple...
+  columns = [ [], [], ] # start with at least one column
+  with open(path, 'r') as f:
+    for tokens in csv.reader(f):
+      assert len(tokens) == 2
+      columns[0].append(float(tokens[0]))
+      columns[1].append(float(tokens[1]))
+    # for
+  # with
+  return columns
+# readWaveformFile()
 
 
 ################################################################################
@@ -709,7 +724,11 @@ class VirtualRenderer:
   
   def selectPad(self, iPad, canvas = None): pass
   
-  def plotFromFile(self, filePath): return None
+  def plotFromFile(self, filePath):
+    """
+    Returns the plot object and data on X and on Y axes as iterable collections.
+    """
+    return None, [], [],
   
   def graphPoints(self, graph): return 0
   
@@ -742,7 +761,17 @@ class VirtualRenderer:
 # class VirtualRenderer
 
 ################################################################################
-class NullRenderer(VirtualRenderer): pass
+class NullRenderer(VirtualRenderer):
+  
+  def plotFromFile(self, filePath):
+    columns = [
+    #  numpy.array(column) for column in readWaveformFile(filePath)
+      column for column in readWaveformFile(filePath)
+      ]
+    return None, columns[0], columns[1],
+  # plotFromFile()
+  
+# class NullRenderer
 
 ################################################################################
 class MPLRendering:
@@ -755,7 +784,7 @@ class MPLRendering:
   
   def selectPad(self, iPad, canvas = None): pass
   
-  def plotFromFile(self, filePath): return None
+  def plotFromFile(self, filePath): return None, [], [],
   
   def graphPoints(self, graph): return 0
   
@@ -808,7 +837,8 @@ class ROOTrendering(VirtualRenderer):
   # __init__()
   
   def plotFromFile(self, filePath):
-    return self.ROOT.TGraph(filePath, '%lg,%lg')
+    graph = self.ROOT.TGraph(filePath, '%lg,%lg')
+    return graph, graph.GetX(), graph.GetY()
   
   def graphPoints(self, graph): return graph.GetN()
   
@@ -963,7 +993,7 @@ def plotWaveformFromFile(filePath, sourceInfo = None):
   if not os.path.exists(filePath):
     print >>sys.stderr, "Can't plot data from '%s': file not found." % (filePath)
     return None
-  graph = Renderer.plotFromFile(filePath)
+  graph, X, Y = Renderer.plotFromFile(filePath)
   logging.debug("'{file}': {points} points"
     .format(file=filePath, points= Renderer.graphPoints(graph))
     )
@@ -971,7 +1001,7 @@ def plotWaveformFromFile(filePath, sourceInfo = None):
   graphName = sourceInfo.formatString("GWaves%(chimney)s_Conn%(connection)s_Ch%(channel)d_I%(index)d")
   graphTitle = sourceInfo.formatString("Chimney %(chimney)s connection %(connection)s channel %(channel)d (%(index)d)")
   Renderer.setObjectNameTitle(graph, graphName, graphTitle)
-  return graph
+  return graph, X, Y
   
 # plotWaveformFromFile()
 
@@ -1043,13 +1073,13 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
         sourcePaths = sourceSpecs.allChannelSources(channelIndex)
         for sourcePath in sourcePaths:
           with timers.setdefault('graph', description="graph creation"):
-            graph = plotWaveformFromFile(sourcePath, sourceInfo=channelSourceInfo)
-            if not graph: continue
-            Renderer.addPlotToMultiplot(graph, mgraph, baseColor)
+            graph, X, Y = plotWaveformFromFile(sourcePath, sourceInfo=channelSourceInfo)
+            if graph:
+              Renderer.addPlotToMultiplot(graph, mgraph, baseColor)
           # with graph timer
           
           with timers.setdefault('stats', description="statistics extraction"):
-            stats = extractStatistics(graph.GetX(), graph.GetY())
+            stats = extractStatistics(X, Y)
             baselineStats.add(stats['baseline']['value'], w=stats['baseline']['error'])
             baselineRMSstats.add(stats['baseline']['RMS'])
             maxStats.add(stats['maximum']['value'])
@@ -1161,7 +1191,7 @@ def waveformDrawer(argv):
     help='index of the waveform at the given position',
     )
   parser.add_argument('--render', '-R', type=str,
-    choices=[ 'ROOT', 'matplotlib', ], default='ROOT',
+    choices=[ 'ROOT', 'matplotlib', 'none', ], default='ROOT',
     help='render system to be used [%(default)s]',
     )
   parser.add_argument(
