@@ -45,6 +45,20 @@ def readWaveformFile(path):
 # readWaveformFile()
 
 
+def indentText(
+ msg,
+ indent = "  ",
+ firstIndent = None,
+ suppressIndentation = False
+ ):
+  if firstIndent is None: firstIndent = indent
+  indentStr = lambda iLine: (firstIndent if iLine == 0 else indent)
+  return "\n".join([
+    indentStr(iLine) + (line.lstrip() if suppressIndentation else line)
+    for iLine, line in enumerate(msg.split('\n'))
+    ])
+# indentText()
+
 ################################################################################
 ### WaveformSourceInfo: data structure with waveform identification parameters
 
@@ -647,9 +661,9 @@ def extractPeaks(t, V, baseline = 0.0, l = 1):
   
   """
 
-  assert(l >= 1)
-  assert(len(V) >= l)
-
+  assert l >= 1
+  assert len(V) >= l
+  
   minSum = MinAccumulator()
   minPos = None
   maxSum = MaxAccumulator()
@@ -764,10 +778,7 @@ class VirtualRenderer:
 class NullRenderer(VirtualRenderer):
   
   def plotFromFile(self, filePath):
-    columns = [
-    #  numpy.array(column) for column in readWaveformFile(filePath)
-      column for column in readWaveformFile(filePath)
-      ]
+    columns = readWaveformFile(filePath)
     return None, columns[0], columns[1],
   # plotFromFile()
   
@@ -1054,11 +1065,9 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
         
         graphName = channelSourceInfo.formatString \
           ("MG_%(chimney)s_%(connection)s_POS%(position)d_CH%(channelIndex)d")
-        mgraph = Renderer.makeMultiplot(
-         name=graphName,
-         title=channelSourceInfo.formatString
+        graphTitle = channelSourceInfo.formatString \
           ("Chimney %(chimney)s connection %(connection)s channel %(channel)s")
-         )
+        mgraph = Renderer.makeMultiplot(name=graphName, title=graphTitle)
         
         #
         # drawing all waveforms and collecting statistics
@@ -1091,7 +1100,9 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
           sys.stderr.write('.')
           iSource += 1
         # for
-        if iSource == 0:
+        else: nWaveforms = iSource 
+        
+        if nWaveforms == 0:
           Renderer.SetRedBackgroundColor(canvas)
           continue # no graphs, bail out
         
@@ -1114,7 +1125,7 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
           # statistics box
           #
           statsText = [
-            "waveforms = %d" % iSource,
+            "waveforms = %d" % nWaveforms,
             "baseline = %.3f V (RMS %.3f V)" % (baselineStats.average(), baselineRMSstats.average()),
             "maximum = (%.3f #pm %.3f) V" % (maxStats.average(), maxStats.averageError()),
             "peak = %.3f V (RMS %.3f V)" % (peakStats.average(), peakStats.RMS())
@@ -1123,7 +1134,31 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
         # with drawstats timer
         
       # with channel timer
+      
+      if options.get('printStats', False):
+        sys.stderr.write('\n')
+        baseline = baselineStats.average()
+        print indentText("""Statistics on {channelDesc}:
+          waveforms:  {nWaveforms}
+          baseline:   {baseline:.4g} +/- {baselineError:.4g}  (RMS: {baselineRMS:.4g})
+          peak:       {peak:.4g} +/- {peakError:.4g}
+          range:      {minVsBaseline:.4g} -- {maxVsBaseline:.4g}
+        """.format(
+          channelDesc=graphTitle,
+          nWaveforms=nWaveforms,
+          baseline=baseline,
+          baselineError=baselineStats.RMS(),
+          baselineRMS=baselineRMSstats.average(),
+          peak=peakStats.average(),
+          peakError=peakStats.RMS(),
+          minVsBaseline=(Vrange.min() - baseline),
+          maxVsBaseline=(Vrange.max() - baseline),
+          ),
+          indent="  ", firstIndent="", suppressIndentation=True,
+        )
+
     # for channels
+    
     Renderer.finalizeCanvas(
       canvas,
       title=(
@@ -1210,6 +1245,8 @@ def waveformDrawer(argv):
     help="waits for user input after drawing the waveforms")
   parser.add_argument("--timing", "-T", action="store_true",
     help="prints some probiling information")
+  parser.add_argument("--stats", "-S", action="store_true",
+    help="prints statistics on each channel")
   
   args = parser.parse_args(args=argv[1:])
   
@@ -1266,6 +1303,7 @@ def waveformDrawer(argv):
   logging.info(sourceSpecs.describe())
   options = {
     'timers': WatchCollection(title="Timings"),
+    'printStats': args.stats,
   }
   
   plotAllPositionWaveforms \
