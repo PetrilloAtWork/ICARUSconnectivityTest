@@ -1,20 +1,225 @@
 #!/usr/bin/env python
 
+from stopwatch import WatchCollection
 import sys
 import os
 import re
 import math
+import logging
 
-try:
-  import ROOT
-  hasROOT = True
-except ImportError:
-  print >>sys.stderr, "Unable to set ROOT up. Some features will be missing."
-  hasROOT = False
+
+################################################################################
+def capitalize(word): return word[:1].upper() + word[1:]
+def camelCase(*words):
+  try: s = words[0]
+  except IndexError: return ""
+  for word in words[1:]:
+    try:
+      if s[-1].islower(): word = capitalize(word) 
+    except IndexError: pass
+    s += word
+  # for
+  return s
+# camelCase()
+
+
+def inverseLookup(myValue, table):
+  for key, value in table.items():
+    if myValue == value: return key
+  else: raise KeyError(myValue)
+# inverseLookup()
 
 
 ################################################################################
 ### WaveformSourceInfo: data structure with waveform identification parameters
+
+class ChimneyInfo:
+  
+  @staticmethod
+  def _matchedParsing(match):
+    chimneyNumber = match.group(2).lstrip('0')
+    return ( match.group(1), int(chimneyNumber) if chimneyNumber else 0, ) \
+      if match is not None else None
+  # _matchedParsing()
+  
+  class StyleBase:
+    @classmethod
+    def split(cls, chimney):
+      match = cls.Pattern.match(chimney.upper())
+      return ChimneyInfo._matchedParsing(match) if match else None
+    @staticmethod
+    def format_(row, number):
+      return '{row}{number:02d}'.format(row=row.upper(), number=number)
+  # StyleBase
+  
+  class GeographicStyle(StyleBase):
+    Name = 'geographic'
+    Pattern = re.compile('([EW]{2})([0-9]+)')
+    
+    StandardTable = { 'EE': 'A', 'EW': 'B', 'WE': 'C', 'WW': 'D', }
+    
+    @staticmethod
+    def fromStandard(row, number):
+      return (
+        inverseLookup(row, ChimneyInfo.GeographicStyle.StandardTable),
+        21 - number,
+        )
+    # fromStandard()
+    
+    @staticmethod
+    def toStandard(row, number):
+      return ( ChimneyInfo.GeographicStyle.StandardTable[row], 21 - number )
+    
+  # GeographicStyle
+  
+  class AlphabeticStyle(StyleBase):
+    Name = 'alphabetic'
+    Pattern = re.compile('([A-D])([0-9]+)')
+    
+    @staticmethod
+    def fromStandard(row, number): return (row, number)
+    
+    @staticmethod
+    def toStandard(row, number): return (row, number)
+  
+  # AlphabeticStyle
+  
+  StandardStyle = GeographicStyle
+  
+  class FlangeStyle(StyleBase):
+    Name = 'flange'
+    Pattern = re.compile('(F)([0-9]+)')
+    
+    @staticmethod
+    def fromStandard(row, number):
+      raise RuntimeError(
+        "Special chimney style '{}' can't be converted from a different style"
+        .format(ChimneyInfo.FlangeStyle.Name)
+        )
+    @staticmethod
+    def toStandard(row, number):
+      raise RuntimeError(
+        "Special chimney style '{}' can't be converted to a different style"
+        .format(ChimneyInfo.FlangeStyle.Name)
+        )
+  # FlangeStyle
+  
+  class InvalidStyle(StyleBase):
+    Name = 'invalid'
+    Pattern = re.compile('')
+    @staticmethod
+    def fromStandard(row, number):
+      raise RuntimeError(
+        "Special chimney style '{}' can't be converted from a different style"
+        .format(ChimneyInfo.InvalidStyle.Name)
+        )
+    @staticmethod
+    def toStandard(row, number):
+      raise RuntimeError(
+        "Special chimney style '{}' can't be converted to a different style"
+        .format(ChimneyInfo.InvalidStyle.Name)
+        )
+  # InvalidStyle
+  
+  ValidStyles = ( GeographicStyle, AlphabeticStyle, FlangeStyle, )
+  
+  @staticmethod
+  def styleMatcher(chimney):
+    for class_ in ChimneyInfo.ValidStyles:
+      if class_ is ChimneyInfo.InvalidStyle: continue
+      info = class_.split(chimney)
+      if not info: continue
+      return class_, info
+    else: return ChimneyInfo.InvalidStyle, None
+  # styleMatcher()
+  
+  @staticmethod
+  def split(chimney):
+    style, info = ChimneyInfo.styleMatcher(chimney)
+    if info is None:
+      raise RuntimeError("'{}' is not a valid chimney.".format(chimney))
+    return info + tuple([ style, ])
+  # split()
+  
+  @staticmethod
+  def format_(series, n): return "{}{:02d}".format(series, n)
+  
+  @staticmethod
+  def isChimney(chimney):
+    return ChimneyInfo.splitChimney(chimney.upper()) is not None
+  
+  @staticmethod
+  def detectStyle(chimney):
+    style, _ = ChimneyInfo.styleMatcher(chimney)
+    return style.Name
+  # detectStyle()
+  
+  @staticmethod
+  def expandStyle(style):
+    try: isStyle = issubclass(style, ChimneyInfo.StyleBase)
+    except TypeError: isStyle = False
+    if isStyle:
+      styleName = style.Name
+    else:
+      styleName = style
+      style = ChimneyInfo.findStyle(styleName)
+      if style is None:
+        raise RuntimeError("Chimney name style '{}' invalid".format(styleName))
+    return style, styleName
+  # expandStyle()
+  
+  @staticmethod
+  def convertToStyleAndSplit(style, chimney, srcStyle = None):
+    style, styleName = ChimneyInfo.expandStyle(style)
+    if not srcStyle: # autodetect original style
+      srcStyle, info = ChimneyInfo.styleMatcher(chimney)
+      if srcStyle is ChimneyInfo.InvalidStyle:
+        raise RuntimeError("'{}' is not a valid chimney.".format(chimney))
+      row, number = info
+    else:
+      srcStyle, _ = ChimneyInfo.expandStyle(srcStyle)
+      row, number = srcStyle.split(chimney)
+    #
+    if srcStyle is not style:
+      row, number = srcStyle.toStandard(row, number)
+      row, number = style.fromStandard(row, number)
+    return (row, number)
+  # convertToStyleAndSplit()
+  
+  @staticmethod
+  def convertToStyle(style, chimney, srcStyle = None):
+    style, _ = ChimneyInfo.expandStyle(style)
+    return style.format_ \
+      (*ChimneyInfo.convertToStyleAndSplit(style, chimney, srcStyle=srcStyle))
+  # convertToStyle()
+  
+  @staticmethod
+  def findStyle(styleName):
+    for style in ChimneyInfo.ValidStyles:
+      if style.Name.lower() == styleName.lower(): return style
+    else: return None
+  # findStyle()
+  
+  @staticmethod
+  def _matchedParsing(match):
+    chimneyNumber = match.group(2).lstrip('0')
+    return ( match.group(1), int(chimneyNumber) if chimneyNumber else 0, ) \
+      if match is not None else None
+  # _matchedParsing()
+  
+# class ChimneyInfo
+
+class CableInfo:
+  
+  Pattern = re.compile('[A-Z][0-9]{1,2}')
+  
+  @staticmethod
+  def isCable(cable):
+    return CableInfo.Pattern.match(cable.upper()) is not None
+  
+# class CableInfo
+
+
 
 class WaveformSourceInfo:
   
@@ -22,8 +227,10 @@ class WaveformSourceInfo:
   
   def __init__(self,
    chimney=None, connection=None, channelIndex=None, position=None,
-   index=None
+   index=None,
+   testName="",
    ):
+    self.test         = testName
     self.chimney      = chimney
     self.connection   = connection
     self.position     = position
@@ -36,7 +243,7 @@ class WaveformSourceInfo:
     return WaveformSourceInfo(
       chimney=self.chimney, connection=self.connection,
       channelIndex=self.channelIndex, position=self.position,
-      index=self.index
+      index=self.index, testName=self.test,
       )
   # copy()
   
@@ -49,6 +256,8 @@ class WaveformSourceInfo:
     self.position = position
     self.updateChannel()
   def setIndex(self, index): self.index = index
+  def setFirstIndex(self, N = 10):
+    self.setIndex(self.firstIndexOf(self.position, N=N))
   def increaseIndex(self, amount = 1): self.index += amount
   
   def updateChannel(self):
@@ -64,111 +273,38 @@ class WaveformSourceInfo:
 
 
 ################################################################################
-### `WaveformSourceParser`: waveform parameter management and extraction
+### `WaveformSourceFilePath`: waveform parameter management
 
-class WaveformSourceParser:
+class WaveformSourceFilePath:
   
-  def __init__(self, path = None):
-    if path is not None: self.parse(path)
+  StandardDirectory = "CHIMNEY_%(chimney)s"
+  StandardPattern = "%(test)swaveform_CH%(channelIndex)d_CHIMNEY_%(chimney)s_CONN_%(connection)s_POS_%(position)d_%(index)d.csv"
   
-  def setup(self, chimney, connection, position, channelIndex, index, filePattern, sourceDir = ".", ):
+  def __init__(self,
+   sourceInfo, filePattern = StandardPattern, sourceDir = ".",
+   ):
     """
     The expected pattern is:
     
-    "path/waveform_CH3_CHIMNEY_EE11_CONN_V12_POS_7_62.csv"
+    "path/HVwaveform_CH3_CHIMNEY_A11_CONN_V12_POS_7_62.csv"
     
     """
     self.sourceDir = sourceDir
     self.sourceFilePattern = filePattern
-    self.sourceInfo = WaveformSourceInfo(
-      chimney=chimney, connection=connection, position=position,
-      channelIndex=channelIndex, index=index
-      )
-    
+    self.sourceInfo = sourceInfo
     self.sourceInfo.updateChannel()
-    self.sourceFilePattern = filePattern
-  # setup()
+  # __init__()
   
-  def parse(self, path):
-    """
-    The expected pattern is:
-    
-    "path/waveform_CH3_CHIMNEY_EE11_CONN_V12_POS_7_62.csv"
-    
-    """
-    self.sourceDir, self.triggerFileName = os.path.split(path)
-    
-    name, ext = os.path.splitext(self.triggerFileName)
-    if ext.lower() != '.csv':
-      print >>sys.stderr, "Warning: the file '%s' has not the name of a comma-separated values file (CSV)." % path
-    tokens = name.split("_")
-    
-    self.sourceInfo = WaveformSourceInfo()
-    
-    self.sourceFilePattern = []
-    
-    iToken = 0
-    while iToken < len(tokens):
-      Token = tokens[iToken]
-      iToken += 1
-      TOKEN = Token.upper()
-      
-      if TOKEN == 'CHIMNEY':
-        try: self.sourceInfo.chimney = tokens[iToken]
-        except IndexError:
-          raise RuntimeError("Error parsing file name '%s': no chimney." % self.triggerFileName)
-        iToken += 1
-        self.sourceFilePattern.extend([ Token, "%(chimney)s", ])
-        continue
-      elif TOKEN == 'CONN':
-        try: self.sourceInfo.connection = tokens[iToken]
-        except IndexError:
-          raise RuntimeError("Error parsing file name '%s': no connection code." % self.triggerFileName)
-        iToken += 1
-        self.sourceFilePattern.extend([ Token, "%(connection)s", ])
-        continue
-      elif TOKEN == 'POS':
-        try: self.sourceInfo.position = int(tokens[iToken])
-        except IndexError:
-          raise RuntimeError("Error parsing file name '%s': no connection code." % self.triggerFileName)
-        except ValueError:
-          raise RuntimeError("Error parsing file name '%s': '%s' is not a valid position." % (self.triggerFileName, tokens[iToken]))
-        self.sourceFilePattern.extend([ Token, "%(position)s", ])
-        iToken += 1
-        continue
-      elif TOKEN == 'WAVEFORM':
-        channel = tokens[iToken]
-        if not channel.startswith('CH'):
-          raise RuntimeError("Error parsing file name '%s': '%s' is not a valid channel." % (self.triggerFileName, channel))
-        try: self.sourceInfo.setChannelIndex(int(channel[2:]))
-        except IndexError:
-          raise RuntimeError("Error parsing file name '%s': no connection code." % self.triggerFileName)
-        except ValueError:
-          raise RuntimeError("Error parsing file name '%s': '%s' is not a valid channel number." % (self.triggerFileName, channel[2:]))
-        self.sourceFilePattern.extend([ Token, "CH%(channelIndex)d", ])
-        iToken += 1
-        continue
-      else:
-        try:
-          self.sourceInfo.setIndex(int(Token))
-          self.sourceFilePattern.append('%(index)d')
-        except ValueError:
-          print >>sys.stderr, "Unexpected tag '%s' in file name '%s'" % (Token, self.triggerFileName)
-          self.sourceFilePattern.append(Token)
-      # if ... else
-    # while
-    
-    if self.sourceInfo.chimney is None: raise RuntimeError("No chimney specified in file name '%s'" % self.triggerFileName)
-    if self.sourceInfo.connection is None: raise RuntimeError("No connection specified in file name '%s'" % self.triggerFileName)
-    if self.sourceInfo.position is None: raise RuntimeError("No position specified in file name '%s'" % self.triggerFileName)
-    if self.sourceInfo.channelIndex is None: raise RuntimeError("No channel specified in file name '%s'" % self.triggerFileName)
-    if self.sourceInfo.index is None: raise RuntimeError("No index specified in file name '%s'" % self.triggerFileName)
-    
-    self.sourceInfo.updateChannel()
-    self.sourceFilePattern = "_".join(self.sourceFilePattern)
-    if ext: self.sourceFilePattern += ext
-    
-  # parse()
+  def setSourceInfo(self, sourceInfo): self.sourceInfo = sourceInfo
+  
+  def formatString(self, s):
+    info = vars(self).copy()
+    info.update(vars(self.sourceInfo))
+    return s % info
+  # formatString()
+  
+  def buildPath(self):
+    return os.path.join(self.sourceDir, self.formatString(self.sourceFilePattern))
   
   def describe(self):
     msg = "Source directory: '%s'\nPattern: '%s'" % (self.sourceDir, self.sourceFilePattern)
@@ -176,9 +312,10 @@ class WaveformSourceParser:
     return msg
   # describe()
   
-  def allChannelSources(self, channelIndex, N = 10):
+  def allChannelSources(self, channelIndex = None, N = 10):
+    """Returns the list of N expected waveform files at the specified channel index."""
     values = self.sourceInfo.copy()
-    values.setChannelIndex(channelIndex)
+    if channelIndex is not None: values.setChannelIndex(channelIndex)
     values.setIndex((self.sourceInfo.position - 1) * N)
     
     files = []
@@ -190,13 +327,100 @@ class WaveformSourceParser:
   # allChannelSources()
   
   def allPositionSources(self, N = 10):
+    """Returns the list of 4N expected waveform files for the current position."""
     files = []
     for channelIndex in xrange(1, WaveformSourceInfo.MaxChannels + 1): files.extend(self.allChannelSources(channelIndex, N))
     return files
   # allPositionSources()
   
+# class WaveformSourceFilePath
+
+
+def parseWaveformSource(path):
+  """Parses `path` and returns a filled `WaveformSourceFilePath`.
   
-# class WaveformSourceParser
+  The expected pattern is:
+  
+  "path/waveform_CH3_CHIMNEY_EE11_CONN_V12_POS_7_62.csv"
+  
+  """
+  sourceDir, triggerFileName = os.path.split(path)
+  
+  name, ext = os.path.splitext(triggerFileName)
+  if ext.lower() != '.csv':
+    print >>sys.stderr, "Warning: the file '%s' has not the name of a comma-separated values file (CSV)." % path
+  tokens = name.split("_")
+  
+  sourceInfo = WaveformSourceInfo()
+  
+  sourceFilePattern = []
+  
+  iToken = 0
+  while iToken < len(tokens):
+    Token = tokens[iToken]
+    iToken += 1
+    TOKEN = Token.upper()
+    
+    if TOKEN == 'CHIMNEY':
+      try: sourceInfo.chimney = tokens[iToken]
+      except IndexError:
+        raise RuntimeError("Error parsing file name '%s': no chimney." % triggerFileName)
+      iToken += 1
+      sourceFilePattern.extend([ Token, "%(chimney)s", ])
+      continue
+    elif TOKEN == 'CONN':
+      try: sourceInfo.connection = tokens[iToken]
+      except IndexError:
+        raise RuntimeError("Error parsing file name '%s': no connection code." % triggerFileName)
+      iToken += 1
+      sourceFilePattern.extend([ Token, "%(connection)s", ])
+      continue
+    elif TOKEN == 'POS':
+      try: sourceInfo.position = int(tokens[iToken])
+      except IndexError:
+        raise RuntimeError("Error parsing file name '%s': no connection code." % triggerFileName)
+      except ValueError:
+        raise RuntimeError("Error parsing file name '%s': '%s' is not a valid position." % (triggerFileName, tokens[iToken]))
+      sourceFilePattern.extend([ Token, "%(position)s", ])
+      iToken += 1
+      continue
+    elif TOKEN.endswith('WAVEFORM'):
+      testName = Token[:-len('WAVEFORM')]
+      channel = tokens[iToken]
+      if not channel.startswith('CH'):
+        raise RuntimeError("Error parsing file name '%s': '%s' is not a valid channel." % (triggerFileName, channel))
+      try: sourceInfo.setChannelIndex(int(channel[2:]))
+      except IndexError:
+        raise RuntimeError("Error parsing file name '%s': no connection code." % triggerFileName)
+      except ValueError:
+        raise RuntimeError("Error parsing file name '%s': '%s' is not a valid channel number." % (triggerFileName, channel[2:]))
+      sourceFilePattern.extend([ Token, "CH%(channelIndex)d", ])
+      iToken += 1
+      continue
+    else:
+      try:
+        sourceInfo.setIndex(int(Token))
+        sourceFilePattern.append('%(index)d')
+      except ValueError:
+        print >>sys.stderr, "Unexpected tag '%s' in file name '%s'" % (Token, triggerFileName)
+        sourceFilePattern.append(Token)
+    # if ... else
+  # while
+  
+  if sourceInfo.chimney is None: raise RuntimeError("No chimney specified in file name '%s'" % triggerFileName)
+  if sourceInfo.connection is None: raise RuntimeError("No connection specified in file name '%s'" % triggerFileName)
+  if sourceInfo.position is None: raise RuntimeError("No position specified in file name '%s'" % triggerFileName)
+  if sourceInfo.channelIndex is None: raise RuntimeError("No channel specified in file name '%s'" % triggerFileName)
+  if sourceInfo.index is None: raise RuntimeError("No index specified in file name '%s'" % triggerFileName)
+  
+  sourceInfo.updateChannel()
+  sourceFilePattern = "_".join(sourceFilePattern)
+  if ext: sourceFilePattern += ext
+  
+  return WaveformSourceFilePath(sourceInfo, sourceFilePattern, sourceDir)
+  
+# parseWaveformSource()
+  
 
 
 def readWaveform(filePath):
@@ -361,6 +585,7 @@ def findMinimum(t, V):
   return minPos
 # findMinimum()
 
+
 def findExtremes(t, V):
   """Simple peak finder, returns the position of the minimum and maximum values."""
   
@@ -425,16 +650,51 @@ def extractBaseline(t, V):
 # extractBaseline()
 
 
-def extractPeaks(t, V, baseline):
-  """A barely acceptable algorithm t find peaks w.r.t. waveform baseline.
+def extractPeaks(t, V, baseline = 0.0, l = 1):
+  """Peak finder with running window average.
+
+  The peaks are found as extrema of the averages of `l` elements in a running window.
+  If specified, a baseline is subtracted to all samples.
+
+  V is required to have at least one element.
+  Samples are assumed to be periodic.
   
-  Quite shameful.
   """
+
+  assert(l >= 1)
+  assert(len(V) >= l)
+
+  minSum = MinAccumulator()
+  minPos = None
+  maxSum = MaxAccumulator()
+  maxPos = None
   
-  iMin, iMax = findExtremes(t, V)
+  iterV = iter(V)
+  s = 0.0
+  for i, v in enumerate(iterV):
+    if i >= l: break
+    s += v
+  last = 0
+  for i, x in enumerate(iterV, start=l):
+    s += x - last
+    if minSum.add(s): minPos = i
+    if maxSum.add(s): maxPos = i
+    last = V[i]
+  # for i
+
+  minStats = [ StatAccumulator(), StatAccumulator(), ]
+  for x, y in zip(t, V)[minPos:minPos + l]:
+    minStats[0].add(x)
+    minStats[1].add(y)
+
+  maxStats = [ StatAccumulator(), StatAccumulator(), ]
+  for x, y in zip(t, V)[maxPos:maxPos + l]:
+    maxStats[0].add(x)
+    maxStats[1].add(y)
+
   return {
-    'positive': { 'value': V[iMax] - baseline, 'valueError': 0.0, 'time': t[iMax], 'timeError': 0.0, },
-    'negative': { 'value': V[iMin] - baseline, 'valueError': 0.0, 'time': t[iMin], 'timeError': 0.0, },
+    'positive': { 'value': maxStats[1].average() - baseline, 'valueError': maxStats[1].RMS(), 'time': maxStats[0].average(), 'timeError': maxStats[0].RMS(), },
+    'negative': { 'value': minStats[1].average() - baseline, 'valueError': minStats[1].RMS(), 'time': minStats[0].average(), 'timeError': minStats[0].RMS(), },
     }
 # extractPeaks()
 
@@ -450,7 +710,8 @@ def extractStatistics(t, V):
   
   stats['baseline'] = extractBaseline(t, V)
   
-  stats['peaks'] = extractPeaks(t, V, stats['baseline']['value'])
+  # while the peaks look sharp to the eye, they're spread across many samples;
+  stats['peaks'] = extractPeaks(t, V, stats['baseline']['value'], 5)
   absPeak = stats['peaks']['positive' if abs(stats['peaks']['positive']['value']) > abs(stats['peaks']['negative']['value']) else 'negative']
   
   stats['peaks']['absolute'] = {
@@ -466,17 +727,279 @@ def extractStatistics(t, V):
 
 ################################################################################
 ### Waveform drawing
+################################################################################
+
+class VirtualRenderer:
+  
+  def __init__(self): pass
+  
+  def makeWaveformCanvas(self, canvasName, nPads, options = {}, canvas = None):
+    return None
+  
+  def selectPad(self, iPad, canvas = None): pass
+  
+  def plotFromFile(self, filePath): return None
+  
+  def graphPoints(self, graph): return 0
+  
+  def setGraphVerticalRange(self, graph, min, max): pass
+  
+  def SetRedBackgroundColor(self, canvas): pass
+  
+  def makeMultiplot(self, name, title): return None
+  
+  def addPlotToMultiplot(self, graph, mgraph, color): pass
+  
+  def setObjectNameTitle(self, obj, name, title): pass
+  
+  def drawWaveformsOnCanvas(self, graph, canvas = None): pass
+  
+  def drawLegendOnCanvas(self, legendLines, boxName, canvas = None):
+    return None
+  
+  def finalizeCanvas(self, canvas, title): pass
+
+  def updateCanvas(self, canvas): pass
+  
+  def baseColors(self): return tuple([ 0, ])
+  
+  def pause(self):
+    print "Press <Enter> to continue."
+    sys.stdin.readline()
+  # pause()
+  
+# class VirtualRenderer
+
+################################################################################
+class NullRenderer(VirtualRenderer): pass
+
+################################################################################
+class MPLRendering:
+  
+  def __init__(self):
+    raise NotImplementedError("matplotlib rendering has not been implemented yet")
+  
+  def makeWaveformCanvas(self, canvasName, nPads, options = {}, canvas = None):
+    return None
+  
+  def selectPad(self, iPad, canvas = None): pass
+  
+  def plotFromFile(self, filePath): return None
+  
+  def graphPoints(self, graph): return 0
+  
+  def setGraphVerticalRange(self, graph, min, max): pass
+  
+  def SetRedBackgroundColor(self, canvas): pass
+  
+  def makeMultiplot(self, name, title): return None
+  
+  def addPlotToMultiplot(self, graph, mgraph, color): pass
+  
+  def setObjectNameTitle(self, obj, name, title): pass
+  
+  def drawWaveformsOnCanvas(self, graph, canvas = None): pass
+  
+  def drawLegendOnCanvas(self, legendLines, boxName, canvas = None):
+    return None
+  
+  def finalizeCanvas(self, canvas, title): pass
+  
+  def updateCanvas(self, canvas): pass
+  
+  def baseColors(self): return tuple([ 0, ])
+  
+# class MPLRendering
+
+################################################################################
+class ProtectArguments:
+  def __init__(self): self.args = sys.argv
+  def __enter__(self): sys.argv = [ self.args[0] ]
+  def __exit__(self, exc_type, exc_value, traceback): sys.argv = self.args
+# class ProtectArguments
+
+class ROOTrendering(VirtualRenderer):
+  
+  @staticmethod
+  def detachObject(obj):
+    ROOTrendering.ROOT.SetOwnership(obj, False)
+    return obj
+  # detachObject()
+  
+  def __init__(self):
+    with ProtectArguments():
+      try: import ROOT
+      except ImportError: ROOT = None
+    ROOTrendering.ROOT = ROOT
+    if not ROOT:
+      raise RuntimeError \
+        ("ROOT not available: can't instantiate `ROOTrendering` class.")
+  # __init__()
+  
+  def plotFromFile(self, filePath):
+    return self.ROOT.TGraph(filePath, '%lg,%lg')
+  
+  def graphPoints(self, graph): return graph.GetN()
+  
+  def setGraphVerticalRange(self, graph, min, max):
+    graph.GetYaxis().SetRangeUser(min, max)
+  
+  def SetRedBackgroundColor(self, canvas):
+    self.ROOT.gPad.SetFillColor(self.ROOT.kRed)
+  
+  def makeWaveformCanvas(self,
+   canvasName,
+   nPads,
+   options = {},
+   canvas = None, # reuse
+   ):
+    if not canvas:
+      canvas = self.ROOT.TCanvas(canvasName, canvasName)
+    else:
+      canvas.cd()
+      canvas.Clear()
+      canvas.SetName(canvasName)
+    self.detachObject(canvas)
+    if options.get("grid", "square").lower() in [ "square", "default", ]:
+      canvas.DivideSquare(nPads)
+    elif options["grid"].lower() == "vertical":
+      canvas.Divide(1, nPads)
+    elif options["grid"].lower() == "horizontal":
+      canvas.Divide(nPads, 1)
+    else:
+      raise RuntimeError("Option 'grid' has unrecognised value '%s'" % options['grid'])
+    
+    for channelIndex in range(1, nPads + 1):
+      #
+      # pad graphic options preparation
+      #
+      pad = canvas.cd(channelIndex)
+      pad.SetFillColor(self.ROOT.kWhite)
+      pad.SetLeftMargin(0.08)
+      pad.SetRightMargin(0.03)
+      pad.SetBottomMargin(0.06)
+      pad.SetGridx()
+      pad.SetGridy()
+    # for
+    
+    canvas.cd()
+    return canvas
+  # makeWaveformCanvas()
+  
+  def selectPad(self, iPad, canvas = None):
+    canvas.cd(iPad + 1)
+  
+  def makeMultiplot(self, name, title):
+    mgraph = self.ROOT.TMultiGraph()
+    mgraph.SetName(name)
+    mgraph.SetTitle(title)
+    return mgraph
+  # makeMultiplot()
+  
+  def addPlotToMultiplot(self, graph, mgraph, color):
+    self.detachObject(graph)
+    graph.SetLineColor(color)
+    mgraph.Add(graph, "L")
+  # addPlotToMultiplot()
+  
+  def setObjectNameTitle(self, obj, name, title):
+    obj.SetNameTitle(name, title)
+  
+  def drawWaveformsOnCanvas(self, graph, canvas = None):
+    self.detachObject(graph)
+    if canvas: canvas.cd()
+    graph.Draw("A")
+    
+    #
+    # setting (multi)graph graphic options
+    #
+    xAxis = graph.GetXaxis()
+    xAxis.SetDecimals()
+    xAxis.SetTitle("time  [s]")
+    # set the range to a minimum
+    yAxis = graph.GetYaxis()
+    yAxis.SetDecimals()
+    yAxis.SetTitle("signal  [V]")
+    
+  # drawWaveformsOnCanvas()
+  
+  def drawLegendOnCanvas(self, legendLines, boxName, canvas = None):
+    if canvas: canvas.cd()
+    
+    # "none" is a hack: `TPaveText` deals with NDC and removes it from the
+    # options, then passes the options to `TPave`; if `TPave` finds an empty
+    # option string (as it does when the original option was just "NDC"), it
+    # sets a "br" default; but ROOT does not punish the presence of
+    # unsupported options.
+    statBox = self.detachObject(self.ROOT.TPaveStats
+      (0.60, 0.80 - 0.025*len(legendLines), 0.98, 0.92, "NDC none"))
+    statBox.SetOptStat(0); # do not print title (the other flags are ignored)
+    statBox.SetBorderSize(1)
+    statBox.SetName(boxName)
+    for statText in legendLines: statBox.AddText(statText)
+    statBox.SetFillColor(self.ROOT.kWhite)
+    statBox.SetTextFont(42) # regular (not bold) sans serif, scalable
+    statBox.Draw()
+    return statBox
+  # drawLegendOnCanvas()
+  
+  def finalizeCanvas(self, canvas, title):
+    canvas.cd(0)
+    canvas.SetTitle(title)
+    canvas.Draw()
+    canvas.Update()
+  # finalizeCanvas()
+  
+  def updateCanvas(self, canvas): canvas.Update()
+  
+  @staticmethod
+  def baseColors():
+    ROOT = ROOTrendering.ROOT
+    return (
+      ROOT.kBlack,
+      ROOT.kYellow + 1,
+      ROOT.kCyan + 1,
+      ROOT.kMagenta + 1,
+      ROOT.kGreen + 1
+      )
+  # baseColors()
+  
+# class ROOTrendering
+
+################################################################################
+RenderOptions = {
+  None:         { 'name': 'none',         'rendererClass': NullRenderer, },
+  'NONE':       { 'name': 'none',         'rendererClass': NullRenderer, },
+  'ROOT':       { 'name': 'ROOT',         'rendererClass': ROOTrendering, },
+  'MATPLOTLIB': { 'name': 'matplotlib',   'rendererClass': MPLRendering, },
+}
+Renderer = None
+
+def useRenderer(rendererName):
+  try:
+    RendererInfo \
+      = RenderOptions[None if rendererName is None else rendererName.upper() ]
+  except KeyError:
+    raise RuntimeError("Unsupported renderer: {}".format(rendererName))
+  global Renderer
+  Renderer = RendererInfo['rendererClass']()
+  return RendererInfo['name']
+# useRenderer()
+
 
 def plotWaveformFromFile(filePath, sourceInfo = None):
   
   if not os.path.exists(filePath):
     print >>sys.stderr, "Can't plot data from '%s': file not found." % (filePath)
     return None
-  graph = ROOT.TGraph(filePath, '%lg,%lg')
-  print "'%s': %d points" % (filePath, graph.GetN())
+  graph = Renderer.plotFromFile(filePath)
+  logging.debug("'{file}': {points} points"
+    .format(file=filePath, points= Renderer.graphPoints(graph))
+    )
+  if sourceInfo is None: sourceInfo = WaveformSourceParser(filePath).sourceInfo
   graphName = sourceInfo.formatString("GWaves%(chimney)s_Conn%(connection)s_Ch%(channel)d_I%(index)d")
   graphTitle = sourceInfo.formatString("Chimney %(chimney)s connection %(connection)s channel %(channel)d (%(index)d)")
-  graph.SetNameTitle(graphName, graphTitle)
+  Renderer.setObjectNameTitle(graph, graphName, graphTitle)
   return graph
   
 # plotWaveformFromFile()
@@ -494,148 +1017,129 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
   # waveform. We also leave some room for the eye.
   defYamplitude = 0.9
   defYmargin = 0.1
-
-  sourceInfo = sourceSpecs.sourceInfo
   
-  baseColors = ( ROOT.kBlack, ROOT.kYellow + 1, ROOT.kCyan + 1, ROOT.kMagenta + 1, ROOT.kGreen + 1)
+  timers = options.get('timers', WatchCollection(title="`plotAllPositionWaveforms()`: timings"))
   
-  channelRange = ExtremeAccumulator()
-  
-  # prepare a canvas to draw in, and split it
-  if canvasName is None:
-    canvasName = sourceInfo.formatString("CWaves%(chimney)s_Conn%(connection)s_Pos%(position)d")
-  if canvas is None:
-    canvas = ROOT.TCanvas(canvasName, canvasName)
-  else:
-    canvas.cd()
-    canvas.Clear()
-    canvas.SetName(canvasName)
-  ROOT.SetOwnership(canvas, False)
-  if options.get("grid", "square").lower() in [ "square", "default", ]:
-    canvas.DivideSquare(sourceInfo.MaxChannels)
-  elif options["grid"].lower() == "vertical":
-    canvas.Divide(1, sourceInfo.MaxChannels)
-  elif options["grid"].lower() == "horizontal":
-    canvas.Divide(sourceInfo.MaxChannels, 1)
-  else:
-    raise RuntimeError("Option 'grid' has unrecognised value '%s'" % options['grid'])
-  canvas.cd()
-  
-  # on each pad, draw a different channel info
-  for channelIndex in xrange(1, sourceInfo.MaxChannels + 1):
+  with timers.setdefault('total', description="total plot time"):
+    sourceInfo = sourceSpecs.sourceInfo
     
-    # each channel will hve a multigraph with one graph for each waveform
-    channelSourceInfo = sourceInfo.copy()
-    channelSourceInfo.setChannelIndex(channelIndex)
+    baseColors = Renderer.baseColors()
     
-    channelRange.add(channelSourceInfo.channel)
+    channelRange = ExtremeAccumulator()
     
-    #
-    # pad graphic options preparation
-    #
-    pad = canvas.cd(channelIndex)
-    pad.SetFillColor(ROOT.kWhite)
-    pad.SetLeftMargin(0.08)
-    pad.SetRightMargin(0.03)
-    pad.SetBottomMargin(0.06)
-    pad.SetGridx()
-    pad.SetGridy()
+    # prepare a canvas to draw in, and split it
+    if canvasName is None:
+      canvasName = sourceInfo.formatString \
+        ("C%(test)sWaves%(chimney)s_Conn%(connection)s_Pos%(position)d")
+    # if
+    canvas = Renderer.makeWaveformCanvas \
+      (canvasName, sourceInfo.MaxChannels, canvas=canvas, options=options)
     
-    baseColor = baseColors[channelIndex % len(baseColors)]
-    
-    mgraph = ROOT.TMultiGraph()
-    mgraph.SetName(channelSourceInfo.formatString("MG_%(chimney)s_%(connection)s_POS%(position)d_CH%(channelIndex)d"))
-    mgraph.SetTitle(channelSourceInfo.formatString("Chimney %(chimney)s connection %(connection)s channel %(channel)s"))
-    
-    #
-    # drawing all waveforms and collecting statistics
-    #
-    baselineStats = StatAccumulator()
-    baselineRMSstats = StatAccumulator()
-    maxStats = StatAccumulator()
-    peakStats = StatAccumulator()
-    Vrange = ExtremeAccumulator()
-    
-    iSource = 0
-    sourcePaths = sourceSpecs.allChannelSources(channelIndex)
-    for sourcePath in sourcePaths:
-      graph = plotWaveformFromFile(sourcePath, sourceInfo=channelSourceInfo)
-      if not graph: continue
-      ROOT.SetOwnership(graph, False)
-      graph.SetLineColor(baseColor)
+    sys.stderr.write("Rendering:")
+    # on each pad, draw a different channel info
+    for channelIndex in xrange(1, sourceInfo.MaxChannels + 1):
       
-      stats = extractStatistics(graph.GetX(), graph.GetY())
-      baselineStats.add(stats['baseline']['value'], w=stats['baseline']['error'])
-      baselineRMSstats.add(stats['baseline']['RMS'])
-      maxStats.add(stats['maximum']['value'])
-      peakStats.add(stats['peaks']['absolute']['value'])
-      Vrange.add(stats['maximum']['value'])
-      Vrange.add(stats['minimum']['value'])
+      sys.stderr.write(" CH{:d}".format(channelIndex))
       
-      mgraph.Add(graph, "L")
-      iSource += 1
-    # for
-    if iSource == 0: 
-      pad.SetFillColor(ROOT.kRed)
-      continue # no graphs, bail out
-    
-    ROOT.SetOwnership(mgraph, False)
-    mgraph.Draw("A")
-    
-    #
-    # setting (multi)graph graphic options
-    #
-    xAxis = mgraph.GetXaxis()
-    xAxis.SetDecimals()
-    xAxis.SetTitle("time  [s]")
-    # set the range to a minimum
-    yAxis = mgraph.GetYaxis()
-    yAxis.SetDecimals()
-    yAxis.SetTitle("signal  [V]")
-    # instead of hard-coding the expected baseline of ~2.0 we use the actual
-    # baseline average, rounded at 100 mV (one decimal digit)
-    drawBaseline = round(baselineStats.average(), 1)
-    Ymin = drawBaseline - defYamplitude
-    Ymax = drawBaseline + defYamplitude
-    if (Vrange.min() >= Ymin and Vrange.max() <= Ymax):
-      yAxis.SetRangeUser(Ymin - defYmargin, Ymax + defYmargin)
-    
-    #
-    # statistics box
-    #
-    statsText = [
-      "waveforms = %d" % iSource,
-      "baseline = %.3f V (RMS %.3f V)" % (baselineStats.average(), baselineRMSstats.average()),
-      "maximum = (%.3f #pm %.3f) V" % (maxStats.average(), maxStats.averageError()),
-      "peak = %.3f V (RMS %.3f V)" % (peakStats.average(), peakStats.RMS())
-      ]
-    # "none" is a hack: `TPaveText` deals with NDC and removes it from the options,
-    # then passes the options to `TPave`; if `TPave` finds an empty option string
-    # (as it does when the original option was just "NDC"), it sets a "br" default;
-    # but ROOT does not punish the presence of unsupported options.
-    statBox = ROOT.TPaveStats(0.60, 0.80 - 0.025*len(statsText), 0.98, 0.92, "NDC none")
-    statBox.SetOptStat(0); # do not print title (the other flags are ignored)
-    statBox.SetBorderSize(1)
-    statBox.SetName(mgraph.GetName() + "_stats")
-    for statText in statsText: statBox.AddText(statText)
-    statBox.SetFillColor(ROOT.kWhite)
-    statBox.SetTextFont(42) # regular (not bold) sans serif, scalable
-    statBox.Draw()
-    ROOT.SetOwnership(statBox, False)
-    
-  # for channels
-  canvas.cd(0)
-  
-  canvas.SetTitle(sourceInfo.formatString("Waveforms from chimney %(chimney)s, connection %(connection)s") + ", channels %d-%d" % (channelRange.min(), channelRange.max()))
-  canvas.Draw()
-  
-  return canvas
+      with timers.setdefault('channel', description="channel plot time"):
+        # each channel will hve a multigraph with one graph for each waveform
+        channelSourceInfo = sourceInfo.copy()
+        channelSourceInfo.setChannelIndex(channelIndex)
+        
+        Renderer.selectPad(channelIndex - 1, canvas)
+        channelRange.add(channelSourceInfo.channel)
+        
+        baseColor = baseColors[channelIndex % len(baseColors)]
+        
+        graphName = channelSourceInfo.formatString \
+          ("MG_%(chimney)s_%(connection)s_POS%(position)d_CH%(channelIndex)d")
+        mgraph = Renderer.makeMultiplot(
+         name=graphName,
+         title=channelSourceInfo.formatString
+          ("Chimney %(chimney)s connection %(connection)s channel %(channel)s")
+         )
+        
+        #
+        # drawing all waveforms and collecting statistics
+        #
+        baselineStats = StatAccumulator()
+        baselineRMSstats = StatAccumulator()
+        maxStats = StatAccumulator()
+        peakStats = StatAccumulator()
+        Vrange = ExtremeAccumulator()
+        
+        iSource = 0
+        sourcePaths = sourceSpecs.allChannelSources(channelIndex)
+        for sourcePath in sourcePaths:
+          with timers.setdefault('graph', description="graph creation"):
+            graph = plotWaveformFromFile(sourcePath, sourceInfo=channelSourceInfo)
+            if not graph: continue
+            Renderer.addPlotToMultiplot(graph, mgraph, baseColor)
+          # with graph timer
+          
+          with timers.setdefault('stats', description="statistics extraction"):
+            stats = extractStatistics(graph.GetX(), graph.GetY())
+            baselineStats.add(stats['baseline']['value'], w=stats['baseline']['error'])
+            baselineRMSstats.add(stats['baseline']['RMS'])
+            maxStats.add(stats['maximum']['value'])
+            peakStats.add(stats['peaks']['absolute']['value'])
+            Vrange.add(stats['maximum']['value'])
+            Vrange.add(stats['minimum']['value'])
+          # with stats timer
+          
+          sys.stderr.write('.')
+          iSource += 1
+        # for
+        if iSource == 0:
+          Renderer.SetRedBackgroundColor(canvas)
+          continue # no graphs, bail out
+        
+        with timers.setdefault('draw', description="multigraph drawing"):
+          Renderer.drawWaveformsOnCanvas(mgraph)
+        # with draw timer
+          
+        with timers.setdefault('drawstats', description="statistics drawing"):
+          # instead of hard-coding the expected baseline of ~2.0 we use the actual
+          # baseline average, rounded at 100 mV (one decimal digit)
+          drawBaseline = round(baselineStats.average(), 1)
+          Ymin = drawBaseline - defYamplitude
+          Ymax = drawBaseline + defYamplitude
+          if (Vrange.min() >= Ymin and Vrange.max() <= Ymax):
+            Renderer.setGraphVerticalRange \
+              (mgraph, Ymin - defYmargin, Ymax + defYmargin)
+          # if
+          
+          #
+          # statistics box
+          #
+          statsText = [
+            "waveforms = %d" % iSource,
+            "baseline = %.3f V (RMS %.3f V)" % (baselineStats.average(), baselineRMSstats.average()),
+            "maximum = (%.3f #pm %.3f) V" % (maxStats.average(), maxStats.averageError()),
+            "peak = %.3f V (RMS %.3f V)" % (peakStats.average(), peakStats.RMS())
+            ]
+          Renderer.drawLegendOnCanvas(statsText, graphName + "_stats")
+        # with drawstats timer
+        
+      # with channel timer
+    # for channels
+    Renderer.finalizeCanvas(
+      canvas,
+      title=(
+        sourceInfo.formatString
+          ("%(test)s waveforms from chimney %(chimney)s, connection %(connection)s")
+        + ", channels %d-%d" % (channelRange.min(), channelRange.max())
+      )
+      )
+    sys.stderr.write(" done.\n")
+    return canvas
+  # with total timer
 # plotAllPositionWaveforms()
 
 
 def plotAllPositionsAroundFile(path, canvasName = None, canvas = None, options = {}):
   
-  sourceSpecs = WaveformSourceParser(path)
+  sourceSpecs = parseWaveformSource(path)
   print sourceSpecs.describe()
   
   return plotAllPositionWaveforms(sourceSpecs, canvasName=canvasName, canvas=canvas, options=options.get('draw', {}))
@@ -723,34 +1227,225 @@ def statAllPositionAroundFile(path, options = {}):
 
 
 ################################################################################
-### Test main program (run with `--help` for explanations)
-"""
-import ROOT
-from drawWaveforms import plotAllPositionAroundFile
-plotAllPositionAroundFile("/Users/petrillo/Desktop/Scope_71/CHIMNEY_EE11/waveform_CH4_CHIMNEY_EE11_CONN_V06_POS_8_80.csv")
-"""
+### Test main programs (run with `--help` for explanations)
 
-if __name__ == "__main__":
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+def waveformDrawer(argv):
   
   import argparse
   
   parser = argparse.ArgumentParser \
     (description='Draws all the waveforms from a specified position.')
   parser.add_argument \
-    ('fileName', type=str, help='one of the files with the waveform')
+    ('--filename', '-f', type=str, help='one of the files with the waveform')
+  parser.add_argument \
+    ('--chimney', '-C', type=str, help='chimney of the data to print')
+  parser.add_argument(
+    '--connection', '--cable', '-c', type=str,
+    help='cable of the data to be printed (e.g. "V12")'
+    )
+  parser.add_argument(
+    '--position', '-p', type=int,
+    help='test box switch position of the data to be printed'
+    )
+  parser.add_argument(
+    '--test', '-t', type=str, default="",
+    help='name of the test to be printed [%(default)s]',
+    )
+  parser.add_argument(
+    '--sourcedir', '--dir', '-d', type=str,
+    help='path where the data files this chimney are'
+    )
+  parser.add_argument(
+    '--waveforms', '-N', type=int, default=10,
+    help='number of waveforms per channel [%(default)d]'
+    )
+  parser.add_argument(
+    '--scopechannel', '-s', type=int,
+    help='oscilloscope channel'
+    )
+  parser.add_argument(
+    '--index', '-i', type=int,
+    help='index of the waveform at the given position',
+    )
+  parser.add_argument('--render', '-R', type=str,
+    choices=[ 'ROOT', 'matplotlib', ], default='ROOT',
+    help='render system to be used [%(default)s]',
+    )
+  parser.add_argument(
+    '--windowname', type=str,
+    help='name of the window being drawn'
+    )
+  parser.add_argument(
+    '--chimneystyle', type=str,
+    choices=[ cls.Name for cls in ChimneyInfo.ValidStyles ],
+    help="select a different style of chimney name for file lookup"
+    )
+  parser.add_argument("--saveas", action="append", default=[], type=str,
+    help="formats to save a picture of the plots in"
+    )
+  parser.add_argument("--pause", "-P", action="store_true",
+    help="waits for user input after drawing the waveforms")
+  parser.add_argument("--timing", "-T", action="store_true",
+    help="prints some probiling information")
   
-  args = parser.parse_args()
+  args = parser.parse_args(args=argv[1:])
   
-  plotAllPositionsAroundFile(args.fileName)
+  if args.filename:
+    if args.chimney:
+      logging.error("File name specified: chimney argument IGNORED.")
+    if args.connection:
+      logging.error("File name specified: connection argument IGNORED.")
+    if args.position:
+      logging.error("File name specified: position argument IGNORED.")
+    if args.test:
+      logging.error("File name specified: test argument IGNORED.")
+  else:
+    if args.chimney is None:
+      raise RuntimeError \
+        ("Chimney argument is REQUIRED (unless filename is specified.")
+    if args.connection is None:
+      raise RuntimeError \
+        ("Connection argument is REQUIRED (unless filename is specified.")
+    if args.position is None:
+      raise RuntimeError \
+        ("Position argument is REQUIRED (unless filename is specified.")
+    if args.scopechannel is None:
+      args.scopechannel = 1
+  #
   
-  if ROOT.gPad: ROOT.gPad.SaveAs(ROOT.gPad.GetName() + ".pdf")
+  if args.chimneystyle:
+    args.chimney = ChimneyInfo.convertToStyle(args.chimneystyle, args.chimney)
   
-  AllFiles = WaveformSourceParser(args.fileName).allPositionSources()
+  useRenderer(args.render)
+  
+  if args.filename:
+    sourceSpecs = parseWaveformSource(args.filename)
+  else:
+    # figure out the name from the information provided
+    if args.sourcedir is None: args.sourcedir = "CHIMNEY_" + str(args.chimney)
+    
+    sourceInfo = WaveformSourceInfo(
+      chimney=args.chimney,
+      connection=args.connection,
+      channelIndex=args.scopechannel,
+      position=args.position,
+      index=args.index,
+      testName=args.test,
+      )
+    if args.index is None: sourceInfo.setFirstIndex(N=args.waveforms)
+    if args.sourcedir is None:
+      args.sourcedir \
+        = sourceInfo.formatString(WaveformSourceFilePath.StandardDirectory)
+    # if
+    sourceSpecs = WaveformSourceFilePath(sourceInfo, sourceDir=args.sourcedir)
+  #
+  
+  logging.info(sourceSpecs.describe())
+  options = {
+    'timers': WatchCollection(title="`Timings"),
+  }
+  
+  plotAllPositionWaveforms \
+    (sourceSpecs, canvasName=args.windowname, options=options)
+  
+  if isinstance(Renderer, ROOTrendering):
+    import ROOT
+    for format_ in args.saveas:
+      ROOT.gPad.SaveAs(ROOT.gPad.GetName() + "." + format_.lstrip('.'))
+  # if ROOT
+  
+  allFiles = sourceSpecs.allPositionSources()
   print "Matching files:"
-  for filePath in AllFiles:
+  for filePath in allFiles:
     print filePath,
     if not os.path.isfile(filePath): print " (NOT FOUND)",
     print
   # for
+  
+  if args.timing:
+    print options['timers']
+  
+  if args.pause: Renderer.pause()
+  elif Renderer: logging.info("Reminder: use `--pause` to stop after drawing.")
+  
+  return 0
+# waveformDrawer()
+
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+def chimneyConverter(argv):
+  
+  import argparse
+  
+  parser = argparse.ArgumentParser \
+    (description='Converts chimney names across different conventions.')
+  parser.add_argument(
+    'chimneys', metavar='chimney', type=str, nargs="*",
+    help="chimney identificators to be converted (read from input if none)"
+    )
+  parser.add_argument(
+    '--output', '-o', type=str, default=ChimneyInfo.StandardStyle.Name,
+    choices=[ cls.Name for cls in ChimneyInfo.ValidStyles ],
+    help="select the output style [%(default)s]"
+    )
+  parser.add_argument(
+    '--input', '-i', type=str,
+    choices=[ cls.Name for cls in ChimneyInfo.ValidStyles ],
+    help="select the input style (default: autodetect)"
+    )
+  parser.add_argument(
+    '--stdin', '-I', action="store_true",
+    help="reads chimney identificators from input"
+    )
+  parser.add_argument(
+    '--verbose', '-v', action="store_true",
+    help="output in the form `INPUT CHIMNEY -> OUTPUT CHIMNEY`"
+    )
+  
+  args = parser.parse_args(args=argv[1:])
+  
+  if args.stdin and args.chimneys:
+    raise RuntimeError(
+      "Reading chimneys from standard input would ignore the ones on command line."
+      )
+  if args.stdin or not args.chimneys:
+    chimneys = sys.stdin
+  else:
+    chimneys = args.chimneys
+  # if stdin
+  
+  for chimney in chimneys:
+    for inputChimney in chimney.split():
+      inputChimney = inputChimney.strip()
+      outputChimney = ChimneyInfo.convertToStyle \
+        (args.output, inputChimney, srcStyle=args.input)
+      if args.verbose:
+        print "{} -> {}".format(inputChimney, outputChimney)
+      else:
+        print outputChimney
+    # for words
+  # for
+  
+  return 0
+# chimneyConverter()
+
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# main program dispatcher
+#
+if __name__ == "__main__":
+  
+  import sys, os
+  
+  mainPrograms = {
+    'convertchimney': chimneyConverter,
+    None: waveformDrawer, # default
+  }
+  
+  mainProgramKey = os.path.splitext(os.path.basename(sys.argv[0]))[0].lower()
+  if mainProgramKey not in mainPrograms: mainProgramKey = None
+  
+  sys.exit(mainPrograms[mainProgramKey](sys.argv))
   
 # main
