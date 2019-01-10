@@ -19,14 +19,15 @@ def MakePlots( plotDir, pList, h ):
   for hName in pList:
     c = ROOT.TCanvas( hName, hName, 1600, 1200 )
     ROOT.gStyle.SetOptStat(0)
+    c.SetRightMargin( 0.12 )
 
     if hName in [ 'PosPeak' ]:
-      h[hName].GetZaxis().SetRangeUser( 0, 1 )
+      h[hName].GetZaxis().SetRangeUser( 0, 0.5 )
       h[hName].SetTitle("Positive Pulse Height")
     elif hName in [ 'Baseline' ]:
-      h[hName].GetZaxis().SetRangeUser( 1.5, 2.5 )
+      h[hName].GetZaxis().SetRangeUser( -0.04, 0.02 )
     elif hName in [ 'RMS' ]:
-      h[hName].GetZaxis().SetRangeUser( 0, 0.02 )
+      h[hName].GetZaxis().SetRangeUser( 0, 0.05 )
     elif hName in [ 'PosPeakToBaseline' ]:
       h[hName].GetZaxis().SetRangeUser( 0, 0.5 )
       h[hName].SetTitle("Positive Pulse Height / Baseline")
@@ -60,7 +61,8 @@ if __name__ == "__main__":
   nChannels     = nPositions*4
 
   hNames = { 'AbsPeak': 'AbsPeak', 'Baseline': 'Baseline', 'RMS': 'RMS', 'PosPeak': 'Peak', 'NegPeak': 'Dip', 'Maximum': 'Maximum', 'Minimum': 'Minimum', 'AbsPeakRMS': 'AbsPeakErr', 'PosPeakRMS': 'PeakErr', 'NegPeakRMS': 'DipErr', 'PosPeakToBaseline': 'PosPeakToBaseline', 'NegPeakToBaseline': 'NegPeakToBaseline', 'AbsPeakToBaseline': 'AbsPeakToBaseline' }
-  pList = [ 'PosPeak', 'Baseline', 'RMS', 'PosPeakToBaseline' ]
+  pList = [ 'PosPeak', 'Baseline', 'RMS' ]
+  # pList = [ 'PosPeak', 'Baseline', 'RMS', 'PosPeakToBaseline' ]
   hList  = BookHistograms( hNames, len(rows), nChimneysARow, nConnections, nChannels )
 
   isXLabeled = [ False ]* ( len(rows)*nChimneysARow )
