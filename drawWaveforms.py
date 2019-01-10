@@ -1178,6 +1178,8 @@ def waveformDrawer(argv):
     )
   parser.add_argument("--pause", "-P", action="store_true",
     help="waits for user input after drawing the waveforms")
+  parser.add_argument("--timing", "-T", action="store_true",
+    help="prints some probiling information")
   
   args = parser.parse_args(args=argv[1:])
   
@@ -1232,8 +1234,12 @@ def waveformDrawer(argv):
   #
   
   logging.info(sourceSpecs.describe())
+  options = {
+    'timers': WatchCollection(title="`Timings"),
+  }
   
-  plotAllPositionWaveforms(sourceSpecs, canvasName=args.windowname)
+  plotAllPositionWaveforms \
+    (sourceSpecs, canvasName=args.windowname, options=options)
   
   if isinstance(Renderer, ROOTrendering):
     import ROOT
@@ -1248,6 +1254,9 @@ def waveformDrawer(argv):
     if not os.path.isfile(filePath): print " (NOT FOUND)",
     print
   # for
+  
+  if args.timing:
+    print options['timers']
   
   if args.pause: Renderer.pause()
   elif Renderer: logging.info("Reminder: use `--pause` to stop after drawing.")
