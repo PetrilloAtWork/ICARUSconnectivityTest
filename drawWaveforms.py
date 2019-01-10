@@ -639,12 +639,15 @@ def extractPeaks(t, V, baseline = 0.0, l = 1):
   minPos = None
   maxSum = MaxAccumulator()
   maxPos = None
-
-  s = sum(V[0:l-1])
+  
+  iterV = iter(V)
+  s = 0.0
+  for i, v in enumerate(iterV):
+    if i >= l: break
+    s += v
   last = 0
-  for i, x in enumerate(V[l-1:]):
+  for i, x in enumerate(iterV, start=l):
     s += x - last
-    print i, s, x, last
     if minSum.add(s): minPos = i
     if maxSum.add(s): maxPos = i
     last = V[i]
