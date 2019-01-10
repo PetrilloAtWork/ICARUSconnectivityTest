@@ -1265,7 +1265,7 @@ def waveformDrawer(argv):
   
   logging.info(sourceSpecs.describe())
   options = {
-    'timers': WatchCollection(title="`Timings"),
+    'timers': WatchCollection(title="Timings"),
   }
   
   plotAllPositionWaveforms \
@@ -1286,7 +1286,7 @@ def waveformDrawer(argv):
   # for
   
   if args.timing:
-    print options['timers']
+    print options['timers'].toString(unit="ms", options=('times', 'average'))
   
   if args.pause: Renderer.pause()
   elif Renderer: logging.info("Reminder: use `--pause` to stop after drawing.")
