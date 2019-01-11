@@ -557,7 +557,7 @@ class StatAccumulator:
   def average(self):
     return self.wx / self.w
   def averageError(self):
-    return self.average() / math.sqrt(self.w)
+    return self.RMS() / math.sqrt(self.w)
   def RMS(self):
     return math.sqrt(max(self.wx2 / self.w - self.average()**2, 0.0))
   def averageSquares(self):
