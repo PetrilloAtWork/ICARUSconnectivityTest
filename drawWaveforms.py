@@ -7,6 +7,8 @@ import re
 import math
 import csv
 import logging
+import numpy
+import struct
 
 
 ################################################################################
@@ -31,7 +33,7 @@ def inverseLookup(myValue, table):
 # inverseLookup()
 
 
-def readWaveformFile(path):
+def readWaveformTextFile(path):
   # here we keep it very simple...
   columns = [ [], [], ] # start with at least one column
   with open(path, 'r') as f:
@@ -41,7 +43,157 @@ def readWaveformFile(path):
       columns[1].append(float(tokens[1]))
     # for
   # with
-  return columns
+  return map(numpy.array, columns)
+# readWaveformTextFile()
+
+
+def writeWaveformTextFile(t, V, path):
+  """
+  Writes the specified waveform as a CSV text file, each line a `t,V` entry.
+  """
+  with open(path, 'w') as f:
+    for a, b in zip(t, V):
+      f.write('{t:g},{V:g}'.format(a, b))
+    # for
+  # with
+  
+# writeWaveformTextFile()
+
+
+DefaultBinaryVersion = 1
+class BinaryFileVersion1:
+  TimeDataStruct = struct.Struct('<Ldd')
+# class BinaryFileVersion1
+
+
+def readWaveformBinaryFile(path, version = None):
+  """
+  Reads waveform data from a binary file with specified version.
+  
+  Formats:
+  
+  * version 1 (current default):
+      * integer: version number
+      * integer (`N`): number of sampling points
+      * double (C type): sampling of first time
+      * double (C type): sampling of last time
+      * numpy.float (x `N`): voltage sampled at each of the sampling times, in order
+  
+  
+  Parameters
+  -----------
+  
+  path _(string)_
+     path to the input file
+  version _(integer, default: autodetect)_
+     binary file format (if `None`, it is autodetected);
+     see `writeWaveformBinaryFile()` for a description of the formats
+  
+  
+  Returns
+  --------
+  
+  t, V
+     iterables of sampling time and sampled voltage
+  """
+  
+  with open(path, 'rb') as inputFile:
+    fileVersion = ord(inputFile.read(1))
+    if version is None:
+      version = fileVersion
+    elif version != fileVersion:
+      raise RuntimeError(
+       "File '{}' is version {} (attempted read as version {})".format(
+        path, fileVersion, version
+       ))
+    # version
+    
+    if version == 1:
+      timeStruct = BinaryFileVersion1.TimeDataStruct
+      buf = inputFile.read(timeStruct.size)
+      nSamples, minT, maxT = timeStruct.unpack_from(buf)
+      t = numpy.linspace(minT, maxT, nSamples)
+      V = numpy.fromfile(inputFile, count=nSamples)
+      return t, V
+    # version 1
+    
+    raise RuntimeError("Unknown data format: version {}".format(version))
+  # with
+  
+# readWaveformBinaryFile()
+
+def writeWaveformBinaryFile(t, V, path, version = None):
+  """
+  Writes the specified data into a binary file with specified version.
+  
+  Formats:
+  
+  * version 1 (current default):
+      * integer: version number
+      * integer (`N`): number of sampling points
+      * float: sampling of first time
+      * float: sampling of last time
+      * floats (x `N`): voltage sampled at each of the sampling times, in order
+  
+  
+  Parameters
+  -----------
+  
+  t, V
+     lists of sampling time and sampled voltage, to be written
+  path _(string)_
+     path to the output file; it will be forcibly recreated
+  version _(integer, default: latest)_
+     binary file format (if `None`, the latest will be picked)
+  """
+  
+  # here we keep it very simple...
+  
+  if version is None: version = DefaultBinaryVersion
+  with open(path, 'wb') as outputFile:
+    outputFile.write(chr(version))
+    if version == 1:
+      timeStruct = BinaryFileVersion1.TimeDataStruct
+      outputFile.write(timeStruct.pack(len(t), t[0], t[-1], ))
+      V.tofile(outputFile)
+      return
+    # if version 1
+    
+    raise RuntimeError("Unknown data format: version {}".format(version))
+  # with
+# writeWaveformBinaryFile()
+
+
+def isTextFile(path):
+  return os.path.splitext(path)[-1].lower() in [ '.txt', '.csv', ]
+
+
+def readWaveformFile(path, version = None):
+  """
+  Reads waveform data from a file.
+  
+  The input format of the file can be specified (or it will be autodetected).
+  Returns two iterables, for time and voltage.
+  """
+  if version is None and isTextFile(path): version = 0
+  if version == 0:
+    return readWaveformTextFile(path)
+  else:
+    return readWaveformBinaryFile(path, version=version)
+# readWaveformFile()
+
+
+def writeWaveformFile(t, V, path, version = None):
+  """
+  Writes waveform data into a file.
+  
+  The output format of the file can be specified, or the default binary format
+  (`DefaultBinaryVersion`) will be used.
+  """
+  if version == 0:
+    return writeWaveformTextFile(t, V, path)
+  else:
+    return writeWaveformBinaryFile(t, V, path, version=version)
 # readWaveformFile()
 
 
@@ -450,6 +602,27 @@ def parseWaveformSource(path):
   
 # parseWaveformSource()
   
+
+
+def readWaveform(filePath):
+  
+  columns = [ [], [] ]
+  with open(filePath, 'r') as inputFile:
+    for line in inputFile:
+      valueStrings = line.strip().split(",")
+      #
+      # columns = [ Xlist, Ylist ]
+      # valueStrings = [ Xvalue, Yvalue ]
+      # zip(columns, valueStrings) = ( ( Xlist, Xvalue ), ( Ylist, Yvalue ) )
+      #
+      for values, newValue in zip(columns, valueStrings):
+        values.append(float(newValue))
+    # for
+  # with
+  return columns
+  
+# readWaveform() 
+
 
 ################################################################################
 ### Statistics
@@ -1217,7 +1390,7 @@ def statAllPositionWaveforms(sourceSpecs):
     iSource = 0
     sourcePaths = sourceSpecs.allChannelSources(channelIndex)
     for sourcePath in sourcePaths:
-      wf = readWaveformFile(sourcePath)
+      wf = readWaveform(sourcePath)
       if not wf: continue
       stats = extractStatistics(wf[0], wf[1])
       # if stats['baseline']['status'] == 'peakTooLow':
@@ -1499,6 +1672,86 @@ def chimneyConverter(argv):
 
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+def fileFormatConverter(argv):
+  
+  import argparse
+  
+  logging.getLogger().setLevel(logging.INFO)
+  
+  parser = argparse.ArgumentParser \
+    (description='Converts format of waveform file.')
+  parser.add_argument(
+    'inputFile', nargs="+",
+    help="file holding the waveform"
+    )
+  parser.add_argument(
+    '--output', '-o', type=str, default=None,
+    help="output file name [build from input]"
+    )
+  parser.add_argument(
+    '--outputdir', '-D', type=str, default=None,
+    help="directory to place output files into (must exist) [same as input]"
+    )
+  parser.add_argument(
+    '--inputversion', '-I', dest='inputVersion', type=int, default=None,
+    help="version of input file [autodetect]"
+    )
+  parser.add_argument(
+    '--outputversion', '-O', dest='outputVersion', type=int,
+    help="version of output file to be written"
+    )
+  parser.add_argument(
+    '--tobinary', '-B', dest='outputVersion', action="store_const",
+    const=DefaultBinaryVersion,
+    help="writes into binary format (version {})".format(DefaultBinaryVersion)
+    )
+  parser.add_argument(
+    '--totext', '-T', dest='outputVersion', action="store_const", const=0,
+    help="writes into text format"
+    )
+  
+  args = parser.parse_args(args=argv[1:])
+  
+  if (len(args.inputFile) > 1) and (args.output is not None):
+    raise RuntimeError \
+     ("Output file name can be specified only with a single input file.")
+  # if
+  
+  for inputFile in args.inputFile:
+    
+    outputFile = args.output
+    if outputFile is None:
+      basename, inputExt = os.path.splitext(inputFile)
+      if inputExt.lower() in [ '.csv', '.txt', ]: # input text file
+        outputFile = basename + '.dat'
+        if args.inputVersion is None: args.inputVersion = 0 # text
+      elif inputExt.lower() in [ '.dat', ]: # binary
+        outputFile = basename + '.txt'
+      else:
+        outputFile = basename + ('.txt' if args.outputVersion == 0 else '.dat')
+    # if detect output file
+    if args.outputdir:
+      outputFile = os.path.join(args.outputdir, os.path.basename(outputFile))
+    
+    if outputFile == inputFile:
+      # we could though...
+      raise RuntimeError \
+       ("Replacing a data file is not supported ('{}')".format(inputFile))
+    #
+    
+    logging.info("'{inputFile}' => '{outputFile}'"
+     .format(inputFile=inputFile, outputFile=outputFile)
+     )
+    
+    t, V = readWaveformFile(inputFile, version=args.inputVersion)
+    writeWaveformFile(t, V, outputFile, version=args.outputVersion)
+    
+  # for
+  return 0
+# fileFormatConverter()
+
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # main program dispatcher
 #
 if __name__ == "__main__":
@@ -1507,6 +1760,7 @@ if __name__ == "__main__":
   
   mainPrograms = {
     'convertchimney': chimneyConverter,
+    'convertfileformat': fileFormatConverter,
     None: waveformDrawer, # default
   }
   
