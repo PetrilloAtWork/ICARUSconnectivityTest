@@ -451,27 +451,6 @@ def parseWaveformSource(path):
 # parseWaveformSource()
   
 
-
-def readWaveform(filePath):
-  
-  columns = [ [], [] ]
-  with open(filePath, 'r') as inputFile:
-    for line in inputFile:
-      valueStrings = line.strip().split(",")
-      #
-      # columns = [ Xlist, Ylist ]
-      # valueStrings = [ Xvalue, Yvalue ]
-      # zip(columns, valueStrings) = ( ( Xlist, Xvalue ), ( Ylist, Yvalue ) )
-      #
-      for values, newValue in zip(columns, valueStrings):
-        values.append(float(newValue))
-    # for
-  # with
-  return columns
-  
-# readWaveform() 
-
-
 ################################################################################
 ### Statistics
 
@@ -1238,7 +1217,7 @@ def statAllPositionWaveforms(sourceSpecs):
     iSource = 0
     sourcePaths = sourceSpecs.allChannelSources(channelIndex)
     for sourcePath in sourcePaths:
-      wf = readWaveform(sourcePath)
+      wf = readWaveformFile(sourcePath)
       if not wf: continue
       stats = extractStatistics(wf[0], wf[1])
       # if stats['baseline']['status'] == 'peakTooLow':
