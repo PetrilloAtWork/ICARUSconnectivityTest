@@ -1310,6 +1310,10 @@ def waveformDrawer(argv):
     help='cable of the data to be printed (e.g. "V12")'
     )
   parser.add_argument(
+    '--channel', type=int,
+    help='channel within the cable (1-32)'
+    )
+  parser.add_argument(
     '--position', '-p', type=int,
     help='test box switch position of the data to be printed'
     )
@@ -1365,6 +1369,8 @@ def waveformDrawer(argv):
       logging.error("File name specified: connection argument IGNORED.")
     if args.position:
       logging.error("File name specified: position argument IGNORED.")
+    if args.channel:
+      logging.error("File name specified: channel argument IGNORED.")
     if args.test:
       logging.error("File name specified: test argument IGNORED.")
   else:
@@ -1374,11 +1380,25 @@ def waveformDrawer(argv):
     if args.connection is None:
       raise RuntimeError \
         ("Connection argument is REQUIRED (unless filename is specified.")
-    if args.position is None:
+    if args.position is None and args.channel is None:
       raise RuntimeError \
         ("Position argument is REQUIRED (unless filename is specified.")
-    if args.scopechannel is None:
-      args.scopechannel = 1
+    if args.channel is None:
+      if args.scopechannel is None: args.scopechannel = 1
+      args.channel = (args.position - 1) * 4 + args.scopechannel
+    else:
+      expectedScopeChannel = args.channel % 4
+      expectedPosition = (args.channel - 1) / 4 + 1
+      if args.scopechannel is None:
+        args.scopechannel = expectedScopeChannel
+      elif args.scopechannel != expectedScopeChannel:
+        raise RuntimeError("Oscilloscope channel specified as {}, expected {}".format(args.scopechannel, expectedScopeChannel))
+      if args.position is None:
+        args.position = expectedPosition
+      elif args.position != expectedPosition:
+        raise RuntimeError("Test box switch position specified as {}, expected {}".format(args.position, expectedPosition))
+    # if ... else
+
   #
   
   if args.chimneystyle:
