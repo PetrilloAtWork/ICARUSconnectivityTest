@@ -370,7 +370,7 @@ def parseWaveformSource(path):
   
   The expected pattern is:
   
-  "path/waveform_CH3_CHIMNEY_EE11_CONN_V12_POS_7_62.csv"
+  "path/PULSEwaveform_CH3_CHIMNEY_EE11_CONN_V12_POS_7_62.csv"
   
   """
   sourceDir, triggerFileName = os.path.split(path)
@@ -450,6 +450,26 @@ def parseWaveformSource(path):
   
 # parseWaveformSource()
   
+
+
+def readWaveform(filePath):
+  
+  columns = [ [], [] ]
+  with open(filePath, 'r') as inputFile:
+    for line in inputFile:
+      valueStrings = line.strip().split(",")
+      #
+      # columns = [ Xlist, Ylist ]
+      # valueStrings = [ Xvalue, Yvalue ]
+      # zip(columns, valueStrings) = ( ( Xlist, Xvalue ), ( Ylist, Yvalue ) )
+      #
+      for values, newValue in zip(columns, valueStrings):
+        values.append(float(newValue))
+    # for
+  # with
+  return columns
+  
+# readWaveform() 
 
 
 ################################################################################
@@ -558,10 +578,10 @@ class StatAccumulator:
     return self.wx / self.w
   def averageError(self):
     return self.RMS() / math.sqrt(self.w)
-  def RMS(self):
-    return math.sqrt(max(self.wx2 / self.w - self.average()**2, 0.0))
   def averageSquares(self):
     return self.wx2 / self.w
+  def RMS(self):
+    return math.sqrt(max(self.averageSquares() - self.average()**2, 0.0))
   
 # class StatAccumulator
 
@@ -611,21 +631,30 @@ def findExtremes(t, V):
 # findExtremes()
 
 
-def extractBaselineFromPedestal(t, V, iPeak):
-  margin = int(0.1 * len(V)) # 10% of the full range
-  
-  iEnd = iPeak - margin
-  if iEnd < 10:
-    # we should bail out here; as a workaround, instead, we get the baseline anyway
-    # raise RuntimeError("Peak (at #%d) too close to the start of the waveform, can't extract pedestal." % iPeak)
-    iEnd = margin
+def extractBaselineFromPedestal(t, V, iPeak, iDip):
+  result = { 'status': 'good', }
+  margin = int( (iPeak-iDip)/2 )
+  iEnd = iDip - margin
+  dV = V[iPeak] - V[iDip]
+  if ( dV < 0.15 ): iEnd = len(V)
+  elif iEnd < 10:
+    result['status'] = 'peakTooLow'
+    print >> sys.stderr, 'This difference between maximum and minimum is %f while minimum is at time %f (tick %d) and maximum is at %f (tick %d)' %( dV, t[iDip], iDip, t[iPeak], iPeak )
+    iEnd = len(V)
+  elif margin < 0:
+    result['status'] = 'swappedPeaks'
+    print >> sys.stderr, 'This difference between maximum and minimum is %f while minimum is at time %f (tick %d) and maximum is at %f (tick %d)' %( dV, t[iDip], iDip, t[iPeak], iPeak )
+    iEnd = len(V)
   
   stats = StatAccumulator()
-  for i in xrange(iEnd): stats.add(V[i])
+  for i in xrange(iEnd):
+    stats.add(V[i])
+    # print i, iEnd
   
-  return {
+  result.update({
     'value': stats.average(), 'error': stats.averageError(), 'RMS': stats.RMS(),
-    }
+    })
+  return result
   
 # extractBaselineFromPedestal()
 
@@ -1181,6 +1210,85 @@ def plotAllPositionsAroundFile(path, canvasName = None, canvas = None, options =
   return plotAllPositionWaveforms(sourceSpecs, canvasName=canvasName, canvas=canvas, options=options.get('draw', {}))
   
 # plotAllPositionAroundFile()
+
+def statAllPositionWaveforms(sourceSpecs):
+
+  sourceInfo = sourceSpecs.sourceInfo
+  final = {}
+
+  for channelIndex in xrange(1, sourceInfo.MaxChannels + 1):
+    
+    # each channel will hve a multigraph with one graph for each waveform
+    channelSourceInfo = sourceInfo.copy()
+    channelSourceInfo.setChannelIndex(channelIndex)
+    channel = channelSourceInfo.channel
+    
+    #
+    # drawing all waveforms and collecting statistics
+    #
+    baselineStats = StatAccumulator()
+    baselineRMSstats = StatAccumulator()
+    maxStats = StatAccumulator()
+    minStats = StatAccumulator()
+    peakStats = StatAccumulator()
+    dipStats = StatAccumulator()
+    absPeakStats = StatAccumulator()
+    Vrange = ExtremeAccumulator()
+    
+    iSource = 0
+    sourcePaths = sourceSpecs.allChannelSources(channelIndex)
+    for sourcePath in sourcePaths:
+      wf = readWaveform(sourcePath)
+      if not wf: continue
+      stats = extractStatistics(wf[0], wf[1])
+      # if stats['baseline']['status'] == 'peakTooLow':
+      #   print >> sys.stderr, 'Chimney %s, connection %s, channel %02d has too low peak!' % ( channelSourceInfo.chimney, channelSourceInfo.connection, channel )
+      # elif stats['baseline']['status'] == 'swappedPeaks':
+      #   print >> sys.stderr, 'Chimney %s, connection %s, channel %02d has swapped peak!' % ( channelSourceInfo.chimney, channelSourceInfo.connection, channel )
+      baselineStats.add(stats['baseline']['value'], w=stats['baseline']['error'])
+      baselineRMSstats.add(stats['baseline']['RMS'])
+      maxStats.add(stats['maximum']['value'])
+      minStats.add(stats['minimum']['value'])
+      peakStats.add(stats['peaks']['positive']['value'])
+      dipStats.add(stats['peaks']['negative']['value'])
+      absPeakStats.add(stats['peaks']['absolute']['value'])
+      Vrange.add(stats['maximum']['value'])
+      Vrange.add(stats['minimum']['value'])
+      iSource += 1
+    # for
+    if iSource == 0: 
+      continue # no graphs, bail out
+    
+    finalStats = {}
+    finalStats['nWaveforms'] = iSource
+    finalStats['baseline'] = { 'average': baselineStats.average(), 'RMS': baselineRMSstats.average() }
+    finalStats['maximum'] = { 'average': maxStats.average(), 'error': maxStats.averageError() }
+    finalStats['minimum'] = { 'average': minStats.average(), 'error': minStats.averageError() }
+    finalStats['peak'] = { 'average': peakStats.average(), 'RMS': peakStats.RMS() }
+    finalStats['dip'] = { 'average': dipStats.average(), 'RMS': dipStats.RMS() }
+    finalStats['absPeak'] = { 'average': absPeakStats.average(), 'RMS': absPeakStats.RMS() }
+    # print "channel = %d" % channel
+    # print "waveforms = %d" % finalStats['nWaveforms']
+    # print "baseline = %.3f V (RMS %.3f V)" % ( finalStats['baseline']['average'], finalStats['baseline']['RMS'] )
+    # print "maximum = (%.3f #pm %.3f) V" % ( finalStats['maximum']['average'], finalStats['maximum']['error'] )
+    # print "peak = %.3f V (RMS %.3f V)" % ( finalStats['absPeak']['average'], finalStats['absPeak']['RMS'] )
+    final[channel] = finalStats
+
+  return final
+
+# statAllPositionWaveforms()
+
+
+def statAllPositionAroundFile(path, options = {}):
+    
+  sourceSpecs = parseWaveformSource(path)
+  print sourceSpecs.describe()
+  
+  stats = statAllPositionWaveforms(sourceSpecs)
+  
+  return stats
+
+# statAllPositionAroundFile()
 
 
 ################################################################################
