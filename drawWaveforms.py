@@ -1184,7 +1184,7 @@ def plotWaveformFromFile(filePath, sourceInfo = None):
   
   if not os.path.exists(filePath):
     print >>sys.stderr, "Can't plot data from '%s': file not found." % (filePath)
-    return None
+    return None, [], []
   graph, X, Y = Renderer.plotFromFile(filePath)
   logging.debug("'{file}': {points} points"
     .format(file=filePath, points= Renderer.graphPoints(graph))
@@ -1264,8 +1264,8 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
         for sourcePath in sourcePaths:
           with timers.setdefault('graph', description="graph creation"):
             graph, X, Y = plotWaveformFromFile(sourcePath, sourceInfo=channelSourceInfo)
-            if graph:
-              Renderer.addPlotToMultiplot(graph, mgraph, baseColor)
+            if not graph: continue
+            Renderer.addPlotToMultiplot(graph, mgraph, baseColor)
           # with graph timer
           
           with timers.setdefault('stats', description="statistics extraction"):
