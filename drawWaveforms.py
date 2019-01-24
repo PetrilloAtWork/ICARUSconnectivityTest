@@ -461,10 +461,10 @@ class WaveformSourceInfo:
   
   @staticmethod
   def indexOfChannel(channel):
-    return ((channel - 1) // WaveformSourceInfo.MaxChannels) + 1
+    return ((channel - 1) % WaveformSourceInfo.MaxChannels) + 1
   @staticmethod
   def positionOfChannel(channel):
-    return ((channel - 1) % WaveformSourceInfo.MaxChannels) + 1
+    return ((channel - 1) // WaveformSourceInfo.MaxChannels) + 1
   
 # class WaveformSourceInfo
 
@@ -491,6 +491,14 @@ class WaveformSourceFilePath:
     self.sourceInfo = sourceInfo
     self.sourceInfo.updateChannel()
   # __init__()
+  
+  def copy(self):
+    return self.__class__(
+      self.sourceInfo.copy(),
+      filePattern=self.sourceFilePattern,
+      sourceDir=self.sourceDir,
+      )
+  # copy()
   
   def setSourceInfo(self, sourceInfo): self.sourceInfo = sourceInfo
   
