@@ -517,10 +517,17 @@ class WaveformSourceFilePath:
     return msg
   # describe()
   
-  def allChannelSources(self, channelIndex = None, N = 10):
-    """Returns the list of N expected waveform files at the specified channel index."""
+  def allChannelSources(self, channelIndex = None, channel = None, N = 10):
+    """
+    Returns the list of N expected waveform files at the specified channel index.
+    """
     values = self.sourceInfo.copy()
-    if channelIndex is not None: values.setChannelIndex(channelIndex)
+    if channelIndex is not None:
+      values.setChannelIndex(channelIndex)
+      assert channel is None
+    elif channel is not None:
+      values.setChannel(channel)
+      assert channelIndex is None
     values.setIndex((self.sourceInfo.position - 1) * N)
     
     files = []
@@ -534,7 +541,7 @@ class WaveformSourceFilePath:
   def allPositionSources(self, N = 10):
     """Returns the list of 4N expected waveform files for the current position."""
     files = []
-    for channelIndex in xrange(1, WaveformSourceInfo.MaxChannels + 1): files.extend(self.allChannelSources(channelIndex, N))
+    for channelIndex in xrange(1, WaveformSourceInfo.MaxChannels + 1): files.extend(self.allChannelSources(channelIndex=channelIndex, N=N))
     return files
   # allPositionSources()
   
@@ -1222,7 +1229,20 @@ def plotWaveformFromFile(filePath, sourceInfo = None):
 # plotWaveformFromFile()
 
 
-def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, options = {}):
+def plotSingleChannel(sourceSpecs, options = {}):
+  """
+  Draws on the current canvas a plot of all waveforms on the same channel.
+  
+  Options:
+  * 'graphColor': override the color of the plots
+  * 'printStats': prints the collected statistics to console
+  * 'timers': a timer manager; will use:
+      * 'channel': pretty much everything except printing statistics
+      * 'graph': creation of the graph (includes reading the input sources)
+      * 'stats': statistics collection
+      * 'draw': final rendering of the plots to the canvas
+      * 'drawstats': statistics rendering on the canvas
+  """
   #
   # The `ROOT.SetOwnership()` calls free the specified ROOT objects from python
   # garbage collection scythe. We need that because since we created them,
@@ -1236,6 +1256,131 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
   defYmargin = 0.1
   
   timers = options.get('timers', WatchCollection(title="`plotAllPositionWaveforms()`: timings"))
+  
+  sourceSpecs = sourceSpecs.copy() # do not mess with the passed one
+  channelSourceInfo = sourceSpecs.sourceInfo
+  
+  baseColors = Renderer.baseColors()
+  
+  channel = channelSourceInfo.channel
+  sys.stderr.write(" Ch{:d}".format(channel))
+  
+  with timers.setdefault('channel', description="channel plot time"):
+    
+    baseColor = options.get \
+      ('graphColor', baseColors[channelSourceInfo.channelIndex % len(baseColors)])
+    
+    graphName = channelSourceInfo.formatString \
+      ("MG_%(chimney)s_%(connection)s_POS%(position)d_CH%(channelIndex)d")
+    graphTitle = channelSourceInfo.formatString \
+      ("Chimney %(chimney)s connection %(connection)s channel %(channel)s")
+    mgraph = Renderer.makeMultiplot(name=graphName, title=graphTitle)
+    
+    #
+    # drawing all waveforms and collecting statistics
+    #
+    baselineStats = StatAccumulator()
+    baselineRMSstats = StatAccumulator()
+    maxStats = StatAccumulator()
+    peakStats = StatAccumulator()
+    Vrange = ExtremeAccumulator()
+    
+    iSource = 0
+    sourcePaths = sourceSpecs.allChannelSources(channelIndex=channelSourceInfo.channelIndex)
+    for sourcePath in sourcePaths:
+      with timers.setdefault('graph', description="graph creation"):
+        graph, X, Y = plotWaveformFromFile(sourcePath, sourceInfo=channelSourceInfo)
+        if not graph: continue
+        Renderer.addPlotToMultiplot(graph, mgraph, baseColor)
+      # with graph timer
+      
+      with timers.setdefault('stats', description="statistics extraction"):
+        stats = extractStatistics(X, Y)
+        baselineStats.add(stats['baseline']['value'], w=stats['baseline']['error'])
+        baselineRMSstats.add(stats['baseline']['RMS'])
+        maxStats.add(stats['maximum']['value'])
+        peakStats.add(stats['peaks']['absolute']['value'])
+        Vrange.add(stats['maximum']['value'])
+        Vrange.add(stats['minimum']['value'])
+      # with stats timer
+      
+      sys.stderr.write('.')
+      iSource += 1
+    # for
+    else: nWaveforms = iSource 
+    
+    if nWaveforms == 0: return None
+    
+    with timers.setdefault('draw', description="multigraph drawing"):
+      Renderer.drawWaveformsOnCanvas(mgraph)
+    # with draw timer
+      
+    with timers.setdefault('drawstats', description="statistics drawing"):
+      # instead of hard-coding the expected baseline of ~2.0 we use the actual
+      # baseline average, rounded at 100 mV (one decimal digit)
+      drawBaseline = round(baselineStats.average(), 1)
+      Ymin = drawBaseline - defYamplitude
+      Ymax = drawBaseline + defYamplitude
+      if (Vrange.min() >= Ymin and Vrange.max() <= Ymax):
+        Renderer.setGraphVerticalRange \
+          (mgraph, Ymin - defYmargin, Ymax + defYmargin)
+      # if
+      
+      #
+      # statistics box
+      #
+      statsText = [
+        "waveforms = %d" % nWaveforms,
+        "baseline = %.3f V (RMS %.3f V)" % (baselineStats.average(), baselineRMSstats.average()),
+        "maximum = (%.3f #pm %.3f) V" % (maxStats.average(), maxStats.averageError()),
+        "peak = %.3f V (RMS %.3f V)" % (peakStats.average(), peakStats.RMS())
+        ]
+      Renderer.drawLegendOnCanvas(statsText, graphName + "_stats")
+    # with drawstats timer
+    
+  # with channel timer
+  
+  if options.get('printStats', False):
+    sys.stderr.write('\n')
+    baseline = baselineStats.average()
+    print indentText("""Statistics on {channelDesc}:
+      waveforms:  {nWaveforms}
+      baseline:   {baseline:.4g} +/- {baselineError:.4g}  (RMS: {baselineRMS:.4g})
+      peak:       {peak:.4g} +/- {peakError:.4g}
+      range:      {minVsBaseline:.4g} -- {maxVsBaseline:.4g}
+    """.format(
+      channelDesc=graphTitle,
+      nWaveforms=nWaveforms,
+      baseline=baseline,
+      baselineError=baselineStats.RMS(),
+      baselineRMS=baselineRMSstats.average(),
+      peak=peakStats.average(),
+      peakError=peakStats.RMS(),
+      minVsBaseline=(Vrange.min() - baseline),
+      maxVsBaseline=(Vrange.max() - baseline),
+      ),
+      indent="  ", firstIndent="", suppressIndentation=True,
+    )
+
+  return mgraph
+  
+# plotSingleChannel()
+
+
+def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, options = {}):
+  #
+  # The `ROOT.SetOwnership()` calls free the specified ROOT objects from python
+  # garbage collection scythe. We need that because since we created them,
+  # we own them, and drawing them does not leave references behind that could
+  # keep them around.
+  #
+  # We know the voltage range we expect the waveforms in, which is roughly
+  # 2.0 +/- 0.9 V; so we draw within this range, unless it would cut the
+  # waveform. We also leave some room for the eye.
+  
+  timers = options.get('timers', WatchCollection(title="`plotAllPositionWaveforms()`: timings"))
+  
+  sourceSpecs = sourceSpecs.copy() # don't mess with the input argument
   
   with timers.setdefault('total', description="total plot time"):
     sourceInfo = sourceSpecs.sourceInfo
@@ -1256,112 +1401,19 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
     # on each pad, draw a different channel info
     for channelIndex in xrange(1, sourceInfo.MaxChannels + 1):
       
-      sys.stderr.write(" CH{:d}".format(channelIndex))
+      # each channel will have a multigraph with one graph for each waveform
+      channelSourceSpecs = sourceSpecs.copy()
+      channelSourceInfo = channelSourceSpecs.sourceInfo
+      channelSourceInfo.setChannelIndex(channelIndex)
+      channelRange.add(channelSourceInfo.channel)
       
-      with timers.setdefault('channel', description="channel plot time"):
-        # each channel will hve a multigraph with one graph for each waveform
-        channelSourceInfo = sourceInfo.copy()
-        channelSourceInfo.setChannelIndex(channelIndex)
-        
-        Renderer.selectPad(channelIndex - 1, canvas)
-        channelRange.add(channelSourceInfo.channel)
-        
-        baseColor = baseColors[channelIndex % len(baseColors)]
-        
-        graphName = channelSourceInfo.formatString \
-          ("MG_%(chimney)s_%(connection)s_POS%(position)d_CH%(channelIndex)d")
-        graphTitle = channelSourceInfo.formatString \
-          ("Chimney %(chimney)s connection %(connection)s channel %(channel)s")
-        mgraph = Renderer.makeMultiplot(name=graphName, title=graphTitle)
-        
-        #
-        # drawing all waveforms and collecting statistics
-        #
-        baselineStats = StatAccumulator()
-        baselineRMSstats = StatAccumulator()
-        maxStats = StatAccumulator()
-        peakStats = StatAccumulator()
-        Vrange = ExtremeAccumulator()
-        
-        iSource = 0
-        sourcePaths = sourceSpecs.allChannelSources(channelIndex)
-        for sourcePath in sourcePaths:
-          with timers.setdefault('graph', description="graph creation"):
-            graph, X, Y = plotWaveformFromFile(sourcePath, sourceInfo=channelSourceInfo)
-            if not graph: continue
-            Renderer.addPlotToMultiplot(graph, mgraph, baseColor)
-          # with graph timer
-          
-          with timers.setdefault('stats', description="statistics extraction"):
-            stats = extractStatistics(X, Y)
-            baselineStats.add(stats['baseline']['value'], w=stats['baseline']['error'])
-            baselineRMSstats.add(stats['baseline']['RMS'])
-            maxStats.add(stats['maximum']['value'])
-            peakStats.add(stats['peaks']['absolute']['value'])
-            Vrange.add(stats['maximum']['value'])
-            Vrange.add(stats['minimum']['value'])
-          # with stats timer
-          
-          sys.stderr.write('.')
-          iSource += 1
-        # for
-        else: nWaveforms = iSource 
-        
-        if nWaveforms == 0:
-          Renderer.SetRedBackgroundColor(canvas)
-          continue # no graphs, bail out
-        
-        with timers.setdefault('draw', description="multigraph drawing"):
-          Renderer.drawWaveformsOnCanvas(mgraph)
-        # with draw timer
-          
-        with timers.setdefault('drawstats', description="statistics drawing"):
-          # instead of hard-coding the expected baseline of ~2.0 we use the actual
-          # baseline average, rounded at 100 mV (one decimal digit)
-          drawBaseline = round(baselineStats.average(), 1)
-          Ymin = drawBaseline - defYamplitude
-          Ymax = drawBaseline + defYamplitude
-          if (Vrange.min() >= Ymin and Vrange.max() <= Ymax):
-            Renderer.setGraphVerticalRange \
-              (mgraph, Ymin - defYmargin, Ymax + defYmargin)
-          # if
-          
-          #
-          # statistics box
-          #
-          statsText = [
-            "waveforms = %d" % nWaveforms,
-            "baseline = %.3f V (RMS %.3f V)" % (baselineStats.average(), baselineRMSstats.average()),
-            "maximum = (%.3f #pm %.3f) V" % (maxStats.average(), maxStats.averageError()),
-            "peak = %.3f V (RMS %.3f V)" % (peakStats.average(), peakStats.RMS())
-            ]
-          Renderer.drawLegendOnCanvas(statsText, graphName + "_stats")
-        # with drawstats timer
-        
-      # with channel timer
+      Renderer.selectPad(channelIndex - 1, canvas)
       
-      if options.get('printStats', False):
-        sys.stderr.write('\n')
-        baseline = baselineStats.average()
-        print indentText("""Statistics on {channelDesc}:
-          waveforms:  {nWaveforms}
-          baseline:   {baseline:.4g} +/- {baselineError:.4g}  (RMS: {baselineRMS:.4g})
-          peak:       {peak:.4g} +/- {peakError:.4g}
-          range:      {minVsBaseline:.4g} -- {maxVsBaseline:.4g}
-        """.format(
-          channelDesc=graphTitle,
-          nWaveforms=nWaveforms,
-          baseline=baseline,
-          baselineError=baselineStats.RMS(),
-          baselineRMS=baselineRMSstats.average(),
-          peak=peakStats.average(),
-          peakError=peakStats.RMS(),
-          minVsBaseline=(Vrange.min() - baseline),
-          maxVsBaseline=(Vrange.max() - baseline),
-          ),
-          indent="  ", firstIndent="", suppressIndentation=True,
-        )
-
+      channelInfo = plotSingleChannel(channelSourceSpecs, options=options)
+      if not channelInfo:
+        Renderer.SetRedBackgroundColor(canvas)
+        continue # no graphs, bail out
+          
     # for channels
     
     Renderer.finalizeCanvas(
@@ -1386,6 +1438,7 @@ def plotAllPositionsAroundFile(path, canvasName = None, canvas = None, options =
   return plotAllPositionWaveforms(sourceSpecs, canvasName=canvasName, canvas=canvas, options=options.get('draw', {}))
   
 # plotAllPositionAroundFile()
+
 
 def statAllPositionWaveforms(sourceSpecs):
 
@@ -1412,7 +1465,7 @@ def statAllPositionWaveforms(sourceSpecs):
     Vrange = ExtremeAccumulator()
     
     iSource = 0
-    sourcePaths = sourceSpecs.allChannelSources(channelIndex)
+    sourcePaths = sourceSpecs.allChannelSources(channelIndex=channelIndex)
     for sourcePath in sourcePaths:
       wf = readWaveform(sourcePath)
       if not wf: continue
