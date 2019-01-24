@@ -436,6 +436,9 @@ class WaveformSourceInfo:
   def setPosition(self, position):
     self.position = position
     self.updateChannel()
+  def setChannel(self, channel):
+    self.channel = channel
+    self.updatePositionAndChannelIndex()
   def setIndex(self, index): self.index = index
   def setFirstIndex(self, N = 10):
     self.setIndex(self.firstIndexOf(self.position, N=N))
@@ -446,9 +449,22 @@ class WaveformSourceInfo:
       None if self.position is None or self.channelIndex is None \
       else (self.position - 1) * WaveformSourceInfo.MaxChannels + self.channelIndex
   # updateChannel()
+  def updatePositionAndChannelIndex(self):
+    self.position = None if self.channel is None \
+      else WaveformSourceInfo.positionOfChannel(self.channel)
+    self.channelIndex = None if self.channel is None \
+      else WaveformSourceInfo.indexOfChannel(self.channel)
+  # updatePositionAndChannelIndex()
   
   @staticmethod
   def firstIndexOf(position, N = 10): return (position - 1) * N + 1
+  
+  @staticmethod
+  def indexOfChannel(channel):
+    return ((channel - 1) // WaveformSourceInfo.MaxChannels) + 1
+  @staticmethod
+  def positionOfChannel(channel):
+    return ((channel - 1) % WaveformSourceInfo.MaxChannels) + 1
   
 # class WaveformSourceInfo
 
