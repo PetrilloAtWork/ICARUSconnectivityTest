@@ -9,6 +9,7 @@ import csv
 import logging
 import numpy
 import struct
+from SelectedRange import SelectedRange
 
 
 ################################################################################
@@ -405,6 +406,9 @@ class CableInfo:
 class WaveformSourceInfo:
   
   MaxChannels = 4
+  MaxPositions = 8
+  # it should be `MaxChannels`, but it's already taken:
+  TotalChannels = MaxChannels * MaxPositions
   
   def __init__(self,
    chimney=None, connection=None, channelIndex=None, position=None,
@@ -1256,9 +1260,11 @@ def plotSingleChannel(sourceSpecs, options = {}):
   defYmargin = 0.1
   
   timers = options.get('timers', WatchCollection(title="`plotAllPositionWaveforms()`: timings"))
+  N = options.get('N', 10)
   
   sourceSpecs = sourceSpecs.copy() # do not mess with the passed one
   channelSourceInfo = sourceSpecs.sourceInfo
+  channelSourceInfo.setFirstIndex(N=N)
   
   baseColors = Renderer.baseColors()
   
@@ -1286,7 +1292,8 @@ def plotSingleChannel(sourceSpecs, options = {}):
     Vrange = ExtremeAccumulator()
     
     iSource = 0
-    sourcePaths = sourceSpecs.allChannelSources(channelIndex=channelSourceInfo.channelIndex)
+    sourcePaths = sourceSpecs.allChannelSources \
+     (channelIndex=channelSourceInfo.channelIndex, N=N)
     for sourcePath in sourcePaths:
       with timers.setdefault('graph', description="graph creation"):
         graph, X, Y = plotWaveformFromFile(sourcePath, sourceInfo=channelSourceInfo)
@@ -1362,25 +1369,17 @@ def plotSingleChannel(sourceSpecs, options = {}):
       indent="  ", firstIndent="", suppressIndentation=True,
     )
 
-  return mgraph
+  return mgraph, sourcePaths
   
 # plotSingleChannel()
 
 
 def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, options = {}):
-  #
-  # The `ROOT.SetOwnership()` calls free the specified ROOT objects from python
-  # garbage collection scythe. We need that because since we created them,
-  # we own them, and drawing them does not leave references behind that could
-  # keep them around.
-  #
-  # We know the voltage range we expect the waveforms in, which is roughly
-  # 2.0 +/- 0.9 V; so we draw within this range, unless it would cut the
-  # waveform. We also leave some room for the eye.
   
   timers = options.get('timers', WatchCollection(title="`plotAllPositionWaveforms()`: timings"))
   
   sourceSpecs = sourceSpecs.copy() # don't mess with the input argument
+  fileList = []
   
   with timers.setdefault('total', description="total plot time"):
     sourceInfo = sourceSpecs.sourceInfo
@@ -1413,7 +1412,9 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
       if not channelInfo:
         Renderer.SetRedBackgroundColor(canvas)
         continue # no graphs, bail out
-          
+      mgraph, channelFiles = channelInfo
+      
+      fileList.extend(channelFiles)
     # for channels
     
     Renderer.finalizeCanvas(
@@ -1425,9 +1426,65 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
       )
       )
     sys.stderr.write(" done.\n")
-    return canvas
+    return canvas, fileList
   # with total timer
 # plotAllPositionWaveforms()
+
+
+def plotSelectedChannelWaveforms(sourceSpecs, channels, canvasName = None, canvas = None, options = {}):
+  
+  timers = options.get('timers', WatchCollection(title="`plotSelectedChannelWaveforms()`: timings"))
+  
+  fileList = []
+  sourceSpecs = sourceSpecs.copy() # don't mess with the input argument
+  
+  with timers.setdefault('total', description="total plot time"):
+    sourceInfo = sourceSpecs.sourceInfo
+    
+    baseColors = Renderer.baseColors()
+    
+    # prepare a canvas to draw in, and split it
+    if canvasName is None:
+      canvasName = sourceInfo.formatString \
+       ("C%(test)sWaves%(chimney)s_Conn%(connection)s_Channels" + str(channels))
+    # if
+    
+    canvas = Renderer.makeWaveformCanvas \
+      (canvasName, len(channels), canvas=canvas, options=options)
+    
+    sys.stderr.write("Rendering:")
+    # on each pad, draw a different channel info
+    for iChannel, channel in enumerate(channels):
+      
+      # each channel will have a multigraph with one graph for each waveform
+      channelSourceSpecs = sourceSpecs.copy()
+      channelSourceInfo = channelSourceSpecs.sourceInfo
+      channelSourceInfo.setChannel(channel)
+      
+      Renderer.selectPad(iChannel, canvas)
+      
+      channelInfo = plotSingleChannel(channelSourceSpecs, options=options)
+      if not channelInfo:
+        Renderer.SetRedBackgroundColor(canvas)
+        continue # no graphs, bail out
+      
+      mgraph, channelFiles = channelInfo
+      fileList.extend(channelFiles)
+      
+    # for channels
+    
+    Renderer.finalizeCanvas(
+      canvas,
+      title=(
+        sourceInfo.formatString
+          ("%(test)s waveforms from chimney %(chimney)s, connection %(connection)s")
+        + ", channels {}".format(channels)
+      )
+      )
+    sys.stderr.write(" done.\n")
+    return canvas, fileList,
+  # with total timer
+# plotSelectedChannelWaveforms()
 
 
 def plotAllPositionsAroundFile(path, canvasName = None, canvas = None, options = {}):
@@ -1539,8 +1596,12 @@ def waveformDrawer(argv):
     help='cable of the data to be printed (e.g. "V12")'
     )
   parser.add_argument(
-    '--channel', type=int,
-    help='channel within the cable (1-32)'
+    '--channels', '--channel', type=str,
+    help='channel specification (e.g. "1-32" for all channels in the cable)'
+    )
+  parser.add_argument(
+    '--allchannels', action="store_true", 
+    help='plot all channels in the specified cable'
     )
   parser.add_argument(
     '--position', '-p', type=int,
@@ -1598,34 +1659,38 @@ def waveformDrawer(argv):
       logging.error("File name specified: connection argument IGNORED.")
     if args.position:
       logging.error("File name specified: position argument IGNORED.")
-    if args.channel:
+    if args.channels:
       logging.error("File name specified: channel argument IGNORED.")
     if args.test:
       logging.error("File name specified: test argument IGNORED.")
   else:
     if args.chimney is None:
       raise RuntimeError \
-        ("Chimney argument is REQUIRED (unless filename is specified.")
+        ("Chimney argument is REQUIRED (unless filename is specified).")
     if args.connection is None:
       raise RuntimeError \
-        ("Connection argument is REQUIRED (unless filename is specified.")
-    if args.position is None and args.channel is None:
+        ("Connection argument is REQUIRED (unless filename is specified).")
+    if args.position is None and args.channels is None and not args.allchannels:
       raise RuntimeError \
-        ("Position argument is REQUIRED (unless filename is specified.")
-    if args.channel is None:
+        ("Position argument is REQUIRED (unless filename is specified).")
+    
+    if args.allchannels:
+      if args.channels is not None:
+        raise RuntimeError \
+          ("Options `--channels` and `--allchannels` are mutually exclusive.")
+      args.channels = '{}-{}'.format(1, WaveformSourceInfo.TotalChannels)
+    # if all channels
+        
+    if args.channels is None:
       if args.scopechannel is None: args.scopechannel = 1
-      args.channel = (args.position - 1) * 4 + args.scopechannel
     else:
-      expectedScopeChannel = args.channel % 4
-      expectedPosition = (args.channel - 1) / 4 + 1
-      if args.scopechannel is None:
-        args.scopechannel = expectedScopeChannel
-      elif args.scopechannel != expectedScopeChannel:
-        raise RuntimeError("Oscilloscope channel specified as {}, expected {}".format(args.scopechannel, expectedScopeChannel))
-      if args.position is None:
-        args.position = expectedPosition
-      elif args.position != expectedPosition:
-        raise RuntimeError("Test box switch position specified as {}, expected {}".format(args.position, expectedPosition))
+      if args.position is not None:
+        raise RuntimeError \
+          ("Options `channel` and `position` are mutually exclusive.")
+      if args.scopechannel is not None:
+        raise RuntimeError \
+          ("Options `channel` and `scopechannel` are mutually exclusive.")
+      args.channels = SelectedRange(args.channels)
     # if ... else
 
   #
@@ -1635,36 +1700,61 @@ def waveformDrawer(argv):
   
   useRenderer(args.render)
   
-  if args.filename:
-    sourceSpecs = parseWaveformSource(args.filename)
-  else:
-    # figure out the name from the information provided
-    if args.sourcedir is None: args.sourcedir = "CHIMNEY_" + str(args.chimney)
+  options = {
+    'timers': WatchCollection(title="Timings"),
+    'printStats': args.stats,
+    'N': args.waveforms,
+  }
+  
+  if args.channels is not None:
     
+    # we walk a tricky path here where channel, channel index and index are not
+    # defined
     sourceInfo = WaveformSourceInfo(
       chimney=args.chimney,
       connection=args.connection,
-      channelIndex=args.scopechannel,
-      position=args.position,
-      index=args.index,
       testName=args.test,
       )
-    if args.index is None: sourceInfo.setFirstIndex(N=args.waveforms)
     if args.sourcedir is None:
       args.sourcedir \
         = sourceInfo.formatString(WaveformSourceFilePath.StandardDirectory)
     # if
+    
     sourceSpecs = WaveformSourceFilePath(sourceInfo, sourceDir=args.sourcedir)
-  #
-  
-  logging.info(sourceSpecs.describe())
-  options = {
-    'timers': WatchCollection(title="Timings"),
-    'printStats': args.stats,
-  }
-  
-  plotAllPositionWaveforms \
-    (sourceSpecs, canvasName=args.windowname, options=options)
+    
+    canvas, allFiles = plotSelectedChannelWaveforms \
+     (sourceSpecs, args.channels, canvasName=args.windowname, options=options)
+    del canvas
+  else:
+    if args.filename:
+      sourceSpecs = parseWaveformSource(args.filename)
+    else:
+      # figure out the name from the information provided
+      sourceInfo = WaveformSourceInfo(
+        chimney=args.chimney,
+        connection=args.connection,
+        channelIndex=args.scopechannel,
+        position=args.position,
+        index=args.index,
+        testName=args.test,
+        )
+      if args.index is None: sourceInfo.setFirstIndex(N=args.waveforms)
+      if args.sourcedir is None:
+        args.sourcedir \
+          = sourceInfo.formatString(WaveformSourceFilePath.StandardDirectory)
+      # if
+      
+      sourceSpecs = WaveformSourceFilePath(sourceInfo, sourceDir=args.sourcedir)
+    #
+    
+    logging.info(sourceSpecs.describe())
+    
+    plotAllPositionWaveforms \
+      (sourceSpecs, canvasName=args.windowname, options=options)
+    
+    allFiles = sourceSpecs.allPositionSources()
+    
+  # if
   
   if isinstance(Renderer, ROOTrendering):
     import ROOT
@@ -1672,7 +1762,6 @@ def waveformDrawer(argv):
       ROOT.gPad.SaveAs(ROOT.gPad.GetName() + "." + format_.lstrip('.'))
   # if ROOT
   
-  allFiles = sourceSpecs.allPositionSources()
   print "Matching files:"
   for filePath in allFiles:
     print filePath,
