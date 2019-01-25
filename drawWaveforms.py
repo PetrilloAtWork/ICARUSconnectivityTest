@@ -1241,7 +1241,7 @@ def plotWaveformFromFile(filePath, sourceInfo = None):
     .format(file=filePath, points= Renderer.graphPoints(graph))
     )
   if sourceInfo is None: sourceInfo = parseWaveformSource(filePath).sourceInfo
-  graphName = sourceInfo.formatString("GWaves%(chimney)s_Conn%(connection)s_Ch%(channel)d_I%(index)d")
+  graphName = sourceInfo.formatString("GWaves_Chimney%(chimney)s_Conn%(connection)s_Ch%(channel)d_I%(index)d")
   graphTitle = sourceInfo.formatString("Chimney %(chimney)s connection %(connection)s channel %(channel)d (%(index)d)")
   Renderer.setObjectNameTitle(graph, graphName, graphTitle)
   return graph, X, Y
@@ -1293,7 +1293,7 @@ def plotSingleChannel(sourceSpecs, options = {}):
       ('graphColor', baseColors[channelSourceInfo.channelIndex % len(baseColors)])
     
     graphName = channelSourceInfo.formatString \
-      ("MG_%(chimney)s_%(connection)s_POS%(position)d_CH%(channelIndex)d")
+      ("MG_%(chimney)s_%(connection)s_Ch%(channel)d")
     graphTitle = channelSourceInfo.formatString \
       ("Chimney %(chimney)s connection %(connection)s channel %(channel)s")
     mgraph = Renderer.makeMultiplot(name=graphName, title=graphTitle)
@@ -1407,7 +1407,7 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
     # prepare a canvas to draw in, and split it
     if canvasName is None:
       canvasName = sourceInfo.formatString \
-        ("C%(test)sWaves%(chimney)s_Conn%(connection)s_Pos%(position)d")
+        ("C%(test)sWaves_Chimney%(chimney)s_Conn%(connection)s_Pos%(position)d")
     # if
     canvas = Renderer.makeWaveformCanvas \
       (canvasName, sourceInfo.MaxChannels, canvas=canvas, options=options)
@@ -1464,7 +1464,7 @@ def plotSelectedChannelWaveforms(sourceSpecs, channels, canvasName = None, canva
       try: channelsStr = channels.toString(fmt='02d')
       except AttributeError: channelsStr = str(channels)
       canvasName = sourceInfo.formatString \
-       ("C%(test)sWaves%(chimney)s_Conn%(connection)s_Channels" + channelsStr)
+       ("C%(test)sWaves_Chimney%(chimney)s_Conn%(connection)s_Channels" + channelsStr)
     # if
     
     canvas = Renderer.makeWaveformCanvas \
