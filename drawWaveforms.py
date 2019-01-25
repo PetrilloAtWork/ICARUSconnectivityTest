@@ -1461,8 +1461,10 @@ def plotSelectedChannelWaveforms(sourceSpecs, channels, canvasName = None, canva
     
     # prepare a canvas to draw in, and split it
     if canvasName is None:
+      try: channelsStr = channels.toString(fmt='02d')
+      except AttributeError: channelsStr = str(channels)
       canvasName = sourceInfo.formatString \
-       ("C%(test)sWaves%(chimney)s_Conn%(connection)s_Channels" + str(channels))
+       ("C%(test)sWaves%(chimney)s_Conn%(connection)s_Channels" + channelsStr)
     # if
     
     canvas = Renderer.makeWaveformCanvas \
@@ -1603,6 +1605,7 @@ def waveformDrawer(argv):
   
   parser = argparse.ArgumentParser \
     (description='Draws all the waveforms from a specified position.')
+  parser.set_defaults(printFiles=None)
   parser.add_argument \
     ('--filename', '-f', type=str, help='one of the files with the waveform')
   parser.add_argument \
@@ -1662,11 +1665,18 @@ def waveformDrawer(argv):
   parser.add_argument("--pause", "-P", action="store_true",
     help="waits for user input after drawing the waveforms")
   parser.add_argument("--timing", "-T", action="store_true",
-    help="prints some probiling information")
+    help="prints some profiling information")
   parser.add_argument("--stats", "-S", action="store_true",
     help="prints statistics on each channel")
+  parser.add_argument("--files", "-F", action="store_true", dest='printFiles',
+    help="prints name of each plotted source [only if `stats` not specified]")
+  parser.add_argument("--nofiles", action="store_false", dest='printFiles',
+    help="do not print the name of each plotted source")
   
   args = parser.parse_args(args=argv[1:])
+  
+  if args.printFiles is None: # default: 
+    args.printFiles = not args.stats
   
   if args.filename:
     if args.chimney:
@@ -1774,13 +1784,15 @@ def waveformDrawer(argv):
   
   if args.saveas: Renderer.saveCanvasAs(*args.saveas)
   
-  print "Matching files:"
-  for filePath in allFiles:
-    print filePath,
-    if not os.path.isfile(filePath): print " (NOT FOUND)",
-    print
-  # for
-  
+  if args.printFiles:
+    print "Matching files:"
+    for filePath in allFiles:
+      print filePath,
+      if not os.path.isfile(filePath): print " (NOT FOUND)",
+      print
+    # for
+  # if print source files
+    
   if args.timing:
     print options['timers'].toString(unit="ms", options=('times', 'average'))
   

@@ -41,15 +41,18 @@ class SelectedRange:
     
     def begin(self): return self.lower
     def end(self): return self.upper + 1
+  
+    def toString(self, fmt = ''):
+      return ("{:" + fmt + "}").format(self.lower) if self.lower == self.upper \
+        else ("{:" + fmt + "}-{:" + fmt + "}").format(self.lower, self.upper)
+    # toString()
     
     def __iter__(self): return iter(range(self.begin(), self.end()))
     def __len__(self): return max(0, self.end() - self.begin())
     
     def __contains__(self, v): return self.contains(v)
-    def __str__(self):
-      return "{}".format(self.lower) if self.lower == self.upper \
-        else "{}-{}".format(self.lower, self.upper)
-    # __str__()
+    def __str__(self): return self.toString()
+    
   # class Range
   
   class Iterator:
@@ -88,11 +91,13 @@ class SelectedRange:
     return self
   # parse()
   
+  def toString(self, fmt = ''):
+    return ",".join(r.toString(fmt=fmt) for r in self.ranges)
+  
   def __iter__(self): return SelectedRange.Iterator(self)
   def __len__(self): return sum(map(len, self.ranges))
   def __contains__(self, v): return self.contains(v)
-  def __str__(self):
-    return ",".join(map(str, self.ranges))
+  def __str__(self): return self.toString()
   
 # class SelectedRange
 
