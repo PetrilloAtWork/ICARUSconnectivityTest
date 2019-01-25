@@ -983,6 +983,8 @@ class VirtualRenderer:
   
   def baseColors(self): return tuple([ 0, ])
   
+  def saveCanvasAs(self, *formats): pass
+  
   def pause(self):
     print "Press <Enter> to continue."
     sys.stdin.readline()
@@ -1036,6 +1038,8 @@ class MPLRendering:
   
   def baseColors(self): return tuple([ 0, ])
   
+  def saveCanvasAs(self, *formats): pass
+
 # class MPLRendering
 
 ################################################################################
@@ -1180,8 +1184,20 @@ class ROOTrendering(VirtualRenderer):
   
   def updateCanvas(self, canvas): canvas.Update()
   
-  @staticmethod
-  def baseColors():
+  def saveCanvasAs(self, *formats):
+    if not formats: return
+    if len(formats) > 1: # poor man recursion
+      self.saveCanvasAs(formats[0])
+      self.saveCanvasAs(*formats[1:])
+      return
+    format_ = formats[0]
+    self.currentCanvas().SaveAs \
+     (self.currentCanvas().GetName() + "." + format_.lstrip('.'))
+  # saveCanvasAs()
+  
+  def currentCanvas(self): return self.ROOT.gPad
+  
+  def baseColors(self):
     ROOT = ROOTrendering.ROOT
     return (
       ROOT.kBlack,
@@ -1756,11 +1772,7 @@ def waveformDrawer(argv):
     
   # if
   
-  if isinstance(Renderer, ROOTrendering):
-    import ROOT
-    for format_ in args.saveas:
-      ROOT.gPad.SaveAs(ROOT.gPad.GetName() + "." + format_.lstrip('.'))
-  # if ROOT
+  if args.saveas: Renderer.saveCanvasAs(*args.saveas)
   
   print "Matching files:"
   for filePath in allFiles:
