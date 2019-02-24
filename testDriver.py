@@ -1418,7 +1418,7 @@ class ChimneyReader:
     # this will work only if `drawWaveforms` module is loaded
     
     with self.timers.withNamespace("plot"):
-      self.canvas = drawWaveforms.plotAllPositionWaveforms(
+      self.canvas, fileList = drawWaveforms.plotAllPositionWaveforms(
         self.sourceSpecs,
         canvas=self.canvas,
         options={ 'timers': self.timers, 'grid': self.drawOptions['grid'], },
