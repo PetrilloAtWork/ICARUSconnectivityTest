@@ -12,7 +12,7 @@ So far, only python environment stuff is usable interactively
 (see `ChimneyReader`), but running from python is still quite better.
 """
 
-__version__ = "6.1.0"
+__version__ = "6.3.0"
 
 # TODO:
 # * `ChimneyReader.start()` warn if the chimney has already been completed
