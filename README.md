@@ -3,7 +3,7 @@ This is a collection of scripts used at one time or another for the ICARUS conne
 Setup and requirements
 -----------------------
 
-The scripts have been tested with python version 2.7.15.
+The scripts have been tested with python version 2.7.10 and 2.7.15.
 
 The scripts typically use National Instrument VISA and CERN ROOT.
 Both should be available under python _at the same time_.
@@ -26,7 +26,7 @@ To test the communication, try:
     import visa
     manager = visa.ResourceManager()
     scope = manager.open_resource('TCPIP0::192.168.230.29::INSTR')
-    print(scope.query("*IDN?"))
+    print(scope.identify())
     
 which in my case prints:
     
@@ -53,7 +53,7 @@ Streamlined data acquisition session with `ChimneyReader`
 The operator interacts with it by creating an instance of it and invoking its callables directly from the python interpreter shell.
 From version 4, this object _requires_ a configuration file (or more).
 
-An example of the start of a data acquisition on chimney `A04`:
+An example of the start of a data acquisition on chimney `EE17`:
 ```python
 from testDriver import ChimneyReader # make `ChimneyReader` available
 reader = ChimneyReader(              # create a `ChimneyReader` object
@@ -63,7 +63,7 @@ reader = ChimneyReader(              # create a `ChimneyReader` object
   ],
   fake=True                          # for this example, we don't connect to the `scope
   )
-reader.start("A04")                 # declare we start a new chimney (can be done in constructor too)
+reader.start("EE17")                 # declare we start a new chimney (can be done in constructor too)
 reader.next()                        # take the first connection + position
 reader.next()                        # take the second connection + position
 reader.next()                        # take the third connection + position; let's assume we did a mistake...
@@ -85,9 +85,9 @@ This is the output of the start of the sequence above:
     ...   )
     INFO:root:Configuration file: 'config/TDS3054C-base.ini'
     INFO:root:Configuration file: 'config/TDS3054C-192.168.230.29.ini'
-    >>> reader.start("A04")                 # declare we start a new chimney (can be done in constructor too)
-    INFO:root:Output for this chimney will be written into: 'CHIMNEY_A04_inprogress'
-    INFO:root:next(): Test pulse chimney A04 connection V01 position 1
+    >>> reader.start("EE17")                 # declare we start a new chimney (can be done in constructor too)
+    INFO:root:Output for this chimney will be written into: 'CHIMNEY_EE17_inprogress'
+    INFO:root:next(): Test pulse chimney EE17 connection V01 position 1
     INFO:root:Hint:
     * remove pulser and ribbon cables and switch the board to slot 1
     * direct test box pulser output to the pulse input for V01
@@ -95,53 +95,53 @@ This is the output of the start of the sequence above:
     * plug the left signal ribbon into the test box
     * turn to position 1
     >>> reader.next()                        # take the first connection + position
-    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH1_CHIMNEY_A04_CONN_V01_POS_1_1.csv'
-    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH2_CHIMNEY_A04_CONN_V01_POS_1_1.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EE17_inprogress/PULSEwaveform_CH1_CHIMNEY_EE17_CONN_V01_POS_1_1.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EE17_inprogress/PULSEwaveform_CH2_CHIMNEY_EE17_CONN_V01_POS_1_1.csv'
     [...]
-    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH3_CHIMNEY_A04_CONN_V01_POS_1_10.csv'
-    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH4_CHIMNEY_A04_CONN_V01_POS_1_10.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EE17_inprogress/PULSEwaveform_CH3_CHIMNEY_EE17_CONN_V01_POS_1_10.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EE17_inprogress/PULSEwaveform_CH4_CHIMNEY_EE17_CONN_V01_POS_1_10.csv'
     Rendering: CH1.......... CH2.......... CH3.......... CH4.......... done.
-    INFO:root:next(): Test pulse chimney A04 connection V01 position 2
+    INFO:root:next(): Test pulse chimney EE17 connection V01 position 2
     INFO:root:Hint:
     * just turn to position 2
     True
     >>> reader.next()                        # take the second connection + position
-    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH1_CHIMNEY_A04_CONN_V01_POS_2_11.csv'
-    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH2_CHIMNEY_A04_CONN_V01_POS_2_11.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EE17_inprogress/PULSEwaveform_CH1_CHIMNEY_EE17_CONN_V01_POS_2_11.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EE17_inprogress/PULSEwaveform_CH2_CHIMNEY_EE17_CONN_V01_POS_2_11.csv'
     [...]
-    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH3_CHIMNEY_A04_CONN_V01_POS_2_20.csv'
-    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH4_CHIMNEY_A04_CONN_V01_POS_2_20.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EE17_inprogress/PULSEwaveform_CH3_CHIMNEY_EE17_CONN_V01_POS_2_20.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EE17_inprogress/PULSEwaveform_CH4_CHIMNEY_EE17_CONN_V01_POS_2_20.csv'
     Rendering: CH1.......... CH2.......... CH3.......... CH4.......... done.
-    INFO:root:next(): Test pulse chimney A04 connection V01 position 3
+    INFO:root:next(): Test pulse chimney EE17 connection V01 position 3
     INFO:root:Hint:
     * just turn to position 3
     True
     >>> reader.next()                        # take the third connection + position; let's assume we did a mistake...
-    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH1_CHIMNEY_A04_CONN_V01_POS_3_21.csv'
-    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH2_CHIMNEY_A04_CONN_V01_POS_3_21.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EE17_inprogress/PULSEwaveform_CH1_CHIMNEY_EE17_CONN_V01_POS_3_21.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EE17_inprogress/PULSEwaveform_CH2_CHIMNEY_EE17_CONN_V01_POS_3_21.csv'
     [...]
-    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH3_CHIMNEY_A04_CONN_V01_POS_3_30.csv'
-    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH4_CHIMNEY_A04_CONN_V01_POS_3_30.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EE17_inprogress/PULSEwaveform_CH3_CHIMNEY_EE17_CONN_V01_POS_3_30.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EE17_inprogress/PULSEwaveform_CH4_CHIMNEY_EE17_CONN_V01_POS_3_30.csv'
     Rendering: CH1.......... CH2.......... CH3.......... CH4.......... done.
-    INFO:root:next(): Test pulse chimney A04 connection V01 position 4
+    INFO:root:next(): Test pulse chimney EE17 connection V01 position 4
     INFO:root:Hint:
     * just turn to position 4
     True
     >>> reader.removeLast()                  # remove the last connection + position, prepare to take it again
-    Remove 40 files from Test PULSE chimney A04 connection V01 position 3? [Y/N] y
-    INFO:root:next(): Test pulse chimney A04 connection V01 position 3
+    Remove 40 files from Test PULSE chimney EE17 connection V01 position 3? [Y/N] y
+    INFO:root:next(): Test pulse chimney EE17 connection V01 position 3
     INFO:root:Hint:
     * just turn to position 3
 
     True
     >>> reader.next()                        # take the third connection + position again
-    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH1_CHIMNEY_A04_CONN_V01_POS_3_21.csv'
-    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH2_CHIMNEY_A04_CONN_V01_POS_3_21.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EE17_inprogress/PULSEwaveform_CH1_CHIMNEY_EE17_CONN_V01_POS_3_21.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EE17_inprogress/PULSEwaveform_CH2_CHIMNEY_EE17_CONN_V01_POS_3_21.csv'
     [...]
-    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH3_CHIMNEY_A04_CONN_V01_POS_3_30.csv'
-    INFO:root:Written 10000 points into 'CHIMNEY_A04_inprogress/PULSEwaveform_CH4_CHIMNEY_A04_CONN_V01_POS_3_30.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EE17_inprogress/PULSEwaveform_CH3_CHIMNEY_EE17_CONN_V01_POS_3_30.csv'
+    INFO:root:Written 10000 points into 'CHIMNEY_EE17_inprogress/PULSEwaveform_CH4_CHIMNEY_EE17_CONN_V01_POS_3_30.csv'
     Rendering: CH1.......... CH2.......... CH3.......... CH4.......... done.
-    INFO:root:next(): Test pulse chimney A04 connection V01 position 4
+    INFO:root:next(): Test pulse chimney EE17 connection V01 position 4
     INFO:root:Hint:
     * just turn to position 4
     True
@@ -213,18 +213,18 @@ December 2018 configurations
 
 The following command line can be used as first entry in a python shell to
 initialise the data taking for the chimney specified in `resume()` (in the
-example, `A0`, which is not a real chimney):
+example, `EE00`, which is not a real chimney):
 
 | test type      | oscilloscope | command                                                                                                                          |
 | -------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| bias only      | scope1       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeWorkbenchTestHV_scope1.ini"); reader.resume("A0")`  |
-| wires only     | scope1       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyFastTest_scope1.ini"); reader.resume("A0")`  |
-| horizontal wires | scope1     | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeHorWireTest_scope1.ini"); reader.resume("A0")`  |
-| bias and wires | scope1       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyTest_scope1.ini"); reader.resume("A0")`      |
-| bias only      | scope2       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeWorkbenchTestHV_scope2.ini"); reader.resume("A0")`  |
-| wires only     | scope2       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyFastTest_scope2.ini"); reader.resume("A0")`  |
-| horizontal wires | scope2     | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeHorWireTest_scope2.ini"); reader.resume("A0")`  |
-| bias and wires | scope2       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyTest_scope2.ini"); reader.resume("A0")`      |
+| bias only      | scope1       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeWorkbenchTestHV_scope1.ini"); reader.resume("EE00")`  |
+| wires only     | scope1       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyFastTest_scope1.ini"); reader.resume("EE00")`  |
+| horizontal wires | scope1     | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeHorWireTest_scope1.ini"); reader.resume("EE00")`  |
+| bias and wires | scope1       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyTest_scope1.ini"); reader.resume("EE00")`      |
+| bias only      | scope2       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeWorkbenchTestHV_scope2.ini"); reader.resume("EE00")`  |
+| wires only     | scope2       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyFastTest_scope2.ini"); reader.resume("EE00")`  |
+| horizontal wires | scope2     | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeHorWireTest_scope2.ini"); reader.resume("EE00")`  |
+| bias and wires | scope2       | `from testDriver import ChimneyReader ; reader = ChimneyReader("config/FlangeChimneyTest_scope2.ini"); reader.resume("EE00")`      |
 
 Note that `resume()` can also in place of `start()` (if no data has been taken
 yet, the two are equivalent).
@@ -296,6 +296,32 @@ But this is what it ended up adding to the configuration file:
     NumAliases=1
 
 where `192.168.230.29` is the address I assigned to the oscilloscope.
+
+
+Appendix: installing oscilloscope interface under OSX
+======================================================
+
+The installation of the required interface to the oscilloscope includes the same two components as in the Linux counterpart:
+
+1. National Instruments drivers ("VISA")
+2. python interface to the oscilloscope (via the drivers)
+
+Here we try to use Python as shipped with OSX. This procedure was tested with OSX 10.13 ("High Sierra") in the installation provided by Fermilab.
+It features Python 2.7.10 as `python`.
+
+The first step was to install ROOT from sources. This might not be necessary (maybe binary were also fine). I tried here ROOT 6.16.
+I am not reporting here how to build and install ROOT from sources, but it's important to point out that in the process I needed to install CMake (I used binary distribution from `cmake.org`) and OSX command line development tools, which provided, among other things, GIT.
+
+To install the Python VISA interface (`pyvisa`) I went with
+    
+    easy_install --user pyvisa
+    
+Supporting its name, `easy_install` did what was needed. Phew.
+I also downloaded and installed NI-VISA, which contributes a kernel extension (version 18.0, 71 MB), _and_ the NI-VISA Run-Time Engine from National Instruments for OSX (also version 18.0, ~8.5 MB). Without the kernel correctly loaded, an "Abort trap 6" message will conclude any PyVISA session.
+
+It is also necessary to "register" the instrument(s) with the VISA configuration utility, which in OSX is interactive (no need to edit text files).
+
+
 
 
 [NIVISA]: https://www.ni.com/visa
