@@ -1,11 +1,13 @@
+#!/usr/bin/env python
+
 import testDriver, stopwatch
 import logging
-import sys
+import sys, os
 
 __all__ = [ "fullCycleTest", ]
 
 def fullCycleTest(
- config = "TestConfig.ini",
+ config = "config/TestConfig.ini",
  chimney = "EW00",
  **kargs
  ):
@@ -14,6 +16,11 @@ def fullCycleTest(
   try:
     
     timer = stopwatch.StopWatch()
+    
+    if not os.path.exists(config):
+        relConfig = os.path.join(os.pwd(), config)
+        if os.path.exists(relConfig): config = relConfig
+    # if
     
     logging.info("fullCycleTest(): ChimneyReader setup")
     kargs['configurationFile'] = config
