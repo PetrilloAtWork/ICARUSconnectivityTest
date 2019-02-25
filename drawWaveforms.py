@@ -393,11 +393,64 @@ class ChimneyInfo:
 
 class CableInfo:
   
-  Pattern = re.compile('[A-Z][0-9]{1,2}')
+  Pattern = re.compile('([A-Z]?)([0-9]{1,2})')
   
   @staticmethod
   def isCable(cable):
     return CableInfo.Pattern.match(cable.upper()) is not None
+  
+  @staticmethod
+  def parse(cable):
+    match = CableInfo.Pattern.match(cable.upper())
+    if match is None:
+      raise RuntimeError("'{}' is not a valid cable identifier.")
+    
+    cableNumber = match.group(2).lstrip('0')
+    cableTag = match.group(1)
+    return cableTag, int(cableNumber)
+  # parse()
+  
+  @staticmethod
+  def extract(cable, chimney = None):
+    cableTag, cableNumber = CableInfo.parse(cable)
+    if not cableTag:
+      if chimney is None:
+        raise RuntimeError \
+         ("A chimney is required in order to parse cable identifier '{}'")
+      # if
+      cableTag = CableInfo.tagFor(chimney)
+    # if
+    return cableTag, cableNumber
+  # extract()
+  
+  @staticmethod
+  def format_(cableTag, cableNo, chimney = None):
+    if not cableTag:
+      if chimney is None:
+        raise RuntimeError(
+         "Either cable tag or chimney are required for formatting a cable name."
+         )
+      cableTag = CableInfo.tagFor(chimney)
+    # if not cableTag
+    return "{tag}{no:02d}".format(tag=cableTag, no=cableNo)
+  # format_()
+  
+  
+  @staticmethod
+  def tagFor(chimney):
+    chimneySeries, chimneyNo = ChimneyInfo.convertToStyleAndSplit \
+      (ChimneyInfo.StandardStyle, chimney)
+    if chimneySeries in [ 'EE', 'WE', ]:
+      if   chimneyNo == 1:  return 'D'
+      elif chimneyNo == 20: return 'C'
+      else:                 return 'V'
+    elif chimneySeries in [ 'EW', 'WW', ]:
+      if   chimneyNo == 1:  return 'B'
+      elif chimneyNo == 20: return 'A'
+      else:                 return 'S'
+    elif chimneySeries == "F": return 'V'
+    raise RuntimeError("No cable tag for chimneys '{}'".format(chimneySeries))
+  # tagFor()
   
 # class CableInfo
 
@@ -422,6 +475,7 @@ class WaveformSourceInfo:
     self.channelIndex = channelIndex
     self.index        = index
     self.updateChannel()
+    self.updateConnection()
   # __init__()
   
   def copy(self):
@@ -434,6 +488,12 @@ class WaveformSourceInfo:
   
   def formatString(self, s): return s % vars(self)
   
+  def setChimney(self, chimney):
+    self.chimney = chimney
+    self.updateConnection()
+  def setConnection(self, connection):
+    self.connection = connection
+    self.updateConnection()
   def setChannelIndex(self, channelIndex):
     self.channelIndex = channelIndex
     self.updateChannel()
@@ -459,6 +519,11 @@ class WaveformSourceInfo:
     self.channelIndex = None if self.channel is None \
       else WaveformSourceInfo.indexOfChannel(self.channel)
   # updatePositionAndChannelIndex()
+  def updateConnection(self):
+    if (self.chimney is None) or (self.connection is None): return
+    cableTag, cableNo = CableInfo.extract(self.connection, chimney=self.chimney)
+    self.connection = CableInfo.format_(cableTag, cableNo)
+  # updateConnection()
   
   @staticmethod
   def firstIndexOf(position, N = 10): return (position - 1) * N + 1
@@ -578,14 +643,14 @@ def parseWaveformSource(path):
     TOKEN = Token.upper()
     
     if TOKEN == 'CHIMNEY':
-      try: sourceInfo.chimney = tokens[iToken]
+      try: sourceInfo.setChimney(tokens[iToken])
       except IndexError:
         raise RuntimeError("Error parsing file name '%s': no chimney." % triggerFileName)
       iToken += 1
       sourceFilePattern.extend([ Token, "%(chimney)s", ])
       continue
     elif TOKEN == 'CONN':
-      try: sourceInfo.connection = tokens[iToken]
+      try: sourceInfo.setConnection(tokens[iToken])
       except IndexError:
         raise RuntimeError("Error parsing file name '%s': no connection code." % triggerFileName)
       iToken += 1

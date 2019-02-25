@@ -12,7 +12,7 @@ So far, only python environment stuff is usable interactively
 (see `ChimneyReader`), but running from python is still quite better.
 """
 
-__version__ = "6.3.0"
+__version__ = "6.4.0"
 
 # TODO:
 # * `ChimneyReader.start()` warn if the chimney has already been completed
@@ -208,7 +208,7 @@ class ReaderState:
     self.chimney = drawWaveforms.ChimneyInfo.format_ \
       (self.chimneySeries, self.chimneyNumber)
     self.chimneyStyle = style
-    self.cableTag = ChimneyReader.cableTagFor(self.chimney)
+    self.cableTag = drawWaveforms.CableInfo.tagFor(self.chimney)
   # setChimney()
     
   def cable(self): return "%(cableTag)s%(cableNo)02d" % vars(self)
@@ -249,7 +249,7 @@ class ReaderState:
   def updateWaveformSourceInfo(self, sourceInfo):
     """Updates a `WaveformSourceInfo` after `ReaderState` has moved to a
     different position."""
-    sourceInfo.connection = self.cable()
+    sourceInfo.setConnection(self.cable())
     sourceInfo.setPosition(self.position)
     sourceInfo.test = self.test
   # updateWaveformSourceInfo()
@@ -535,8 +535,7 @@ class HVandPulseSequence(ReaderStateSequence):
     # coloring
     chimney = self.readerState.chimney # no color
     
-    cable \
-      = "{tag}{no:02d}".format(tag=self.readerState.cableTag, no=self.cable())
+    cable = drawWaveforms.CableInfo(self.readerState.cableTag, self.cable())
     
     if self.isLeft():
       cable = self.colorLeft(cable)
@@ -793,8 +792,7 @@ class HorizontalHVandPulseSequence(ReaderStateSequence):
     # coloring
     chimney = self.readerState.chimney # no color
     
-    cable \
-      = "{tag}{no:02d}".format(tag=self.readerState.cableTag, no=self.cable())
+    cable = drawWaveforms.CableInfo(self.readerState.cableTag, self.cable())
     
     if self.isLeft():
       cable = self.colorLeft(cable)
@@ -918,23 +916,6 @@ class ChimneyReader:
   
   
   """
-  
-  @staticmethod
-  def cableTagFor(chimney):
-    ChimneyInfo = drawWaveforms.ChimneyInfo
-    chimneySeries, chimneyNo = ChimneyInfo.convertToStyleAndSplit \
-      (ChimneyInfo.StandardStyle, chimney)
-    if chimneySeries in [ 'EE', 'WE', 'A', 'C' ]:
-      if   chimneyNo == 1:  return 'D'
-      elif chimneyNo == 20: return 'C'
-      else:                 return 'V'
-    elif chimneySeries in [ 'EW', 'WW', 'B', 'D' ]:
-      if   chimneyNo == 1:  return 'B'
-      elif chimneyNo == 20: return 'A'
-      else:                 return 'S'
-    elif chimneySeries == "F": return 'V'
-    raise RuntimeError("No cable tag for chimneys '{}'".format(chimneySeries))
-  # cableTagFor()
   
   MinPosition = 1
   MaxPosition = 8
@@ -1888,7 +1869,7 @@ rsync ${{FAKE:+'-n'}} -avz --chmod='ug+rw' --progress --files-from='-' "$SourceB
       expectedFiles.extend(positionFiles)
       
       if not readerState.goNext(): break
-      sourceSpecs.sourceInfo.connection = readerState.state().cable()
+      sourceSpecs.sourceInfo.setConnection(readerState.state().cable())
       sourceSpecs.sourceInfo.setPosition(readerState.state().position)
       sourceSpecs.sourceInfo.test = readerState.state().test
     # while
@@ -2002,7 +1983,7 @@ rsync ${{FAKE:+'-n'}} -avz --chmod='ug+rw' --progress --files-from='-' "$SourceB
     
     def next(self):
       state = next(self.seqIter).state()
-      self.sourceSpecs.sourceInfo.connection = state.cable()
+      self.sourceSpecs.sourceInfo.setConnection(state.cable())
       self.sourceSpecs.sourceInfo.setPosition(state.position)
       self.sourceSpecs.sourceInfo.test = state.test
       return self.sourceSpecs.allPositionSources(state.N)
