@@ -441,12 +441,12 @@ class CableInfo:
     chimneySeries, chimneyNo = ChimneyInfo.convertToStyleAndSplit \
       (ChimneyInfo.StandardStyle, chimney)
     if chimneySeries in [ 'EE', 'WE', ]:
-      if   chimneyNo == 1:  return 'D'
-      elif chimneyNo == 20: return 'C'
+      if   chimneyNo == 1:  return 'C'
+      elif chimneyNo == 20: return 'D'
       else:                 return 'V'
     elif chimneySeries in [ 'EW', 'WW', ]:
-      if   chimneyNo == 1:  return 'B'
-      elif chimneyNo == 20: return 'A'
+      if   chimneyNo == 1:  return 'A'
+      elif chimneyNo == 20: return 'B'
       else:                 return 'S'
     elif chimneySeries == "F": return 'V'
     raise RuntimeError("No cable tag for chimneys '{}'".format(chimneySeries))
