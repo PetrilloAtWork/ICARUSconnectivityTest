@@ -1378,8 +1378,7 @@ def plotSingleChannel(sourceSpecs, options = {}):
     for sourcePath in sourcePaths:
       with timers.setdefault('graph', description="graph creation"):
         graph, X, Y = plotWaveformFromFile(sourcePath, sourceInfo=channelSourceInfo)
-        if not graph: continue
-        Renderer.addPlotToMultiplot(graph, mgraph, baseColor)
+        if graph: Renderer.addPlotToMultiplot(graph, mgraph, baseColor)
       # with graph timer
       
       with timers.setdefault('stats', description="statistics extraction"):
