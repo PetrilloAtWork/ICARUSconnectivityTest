@@ -471,7 +471,7 @@ class ChannelInfo:
   
   The elements of the identification are:
    * chimney: a string that can be interpreted by `ChimneyInfo` (e.g. 'EW03')
-   * connection (or cable): identifier of the 68-wire cable (e.g. 'S12')
+   * connection (or cable()): identifier of the 68-wire cable (e.g. 'S12')
    * position: setting of the 8-position test box switch, 1-8 (e.g. 6)
    * channelIndex: oscilloscope/test box channel number, 1-4 (e.g. 3)
   
@@ -2093,8 +2093,8 @@ def waveformDrawer(argv):
     ('--filename', '-f', type=str, help='one of the files with the waveform')
   parser.add_argument(
     '--inputchannel', '-I', type=str,
-    help='single-string specification of the channel"
-      " (e.g. "EW03:S15:12" or "340@EW03")'
+    help='single-string specification of the channel'
+      ' (e.g. "EW03:S15:12" or "340@EW03")',
     )
   parser.add_argument \
     ('--chimney', '-C', type=str, help='chimney of the data to print')
@@ -2181,6 +2181,29 @@ def waveformDrawer(argv):
       logging.error("File name specified: channel argument IGNORED.")
     if args.test:
       logging.error("File name specified: test argument IGNORED.")
+  elif args.inputchannel:
+    if args.chimney:
+      logging.error("File name specified: chimney argument IGNORED.")
+    if args.connection:
+      logging.error("File name specified: connection argument IGNORED.")
+    if args.position:
+      logging.error("File name specified: position argument IGNORED.")
+    
+    channelInfo = ChannelConversions.parse(args.inputchannel)
+    args.chimney = channelInfo.chimney
+    args.connection = channelInfo.cable()
+    args.position = channelInfo.position
+    args.scopechannel = channelInfo.channelIndex
+    if args.allchannels:
+      if args.channels is not None:
+        raise RuntimeError \
+          ("Options `--channels` and `--allchannels` are mutually exclusive.")
+      args.channels = '{}-{}'.format(1, ChannelInfo.CableChannels)
+    # if all channels
+    if args.channels:
+      args.channels = SelectedRange(args.channels)
+    
+    
   else:
     if args.chimney is None:
       raise RuntimeError \
