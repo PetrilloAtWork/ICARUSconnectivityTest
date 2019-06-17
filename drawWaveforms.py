@@ -27,6 +27,15 @@ def camelCase(*words):
 # camelCase()
 
 
+def objectValues(obj, keys):
+  def callOrValue(obj, attrName):
+    attr = getattr(obj, attrName)
+    return attr() if callable(attr) else attr
+  # callOrValue()
+  return dict( ( key, callOrValue(obj, key) ) for key in keys)
+# objectValues()
+
+
 def inverseLookup(myValue, table):
   for key, value in table.items():
     if myValue == value: return key
@@ -317,6 +326,7 @@ class ChimneyInfo:
   
   @staticmethod
   def split(chimney):
+    """Returns a tuple ( row, column, style ). Raises RuntimeError on error."""
     style, info = ChimneyInfo.styleMatcher(chimney)
     if info is None:
       raise RuntimeError("'{}' is not a valid chimney.".format(chimney))
@@ -328,7 +338,7 @@ class ChimneyInfo:
   
   @staticmethod
   def isChimney(chimney):
-    return ChimneyInfo.splitChimney(chimney.upper()) is not None
+    return ChimneyInfo.split(chimney.upper()) is not None
   
   @staticmethod
   def detectStyle(chimney):
@@ -499,28 +509,50 @@ class ChimneyID:
 # class ChimneyID
 
 
-class WaveformSourceInfo:
+class ChannelInfo:
+  """Identification of a channel in the connectivity test.
+  
+  The elements of the identification are:
+   * chimney: a string that can be interpreted by `ChimneyInfo` (e.g. 'EW03')
+   * connection (or cable()): identifier of the 68-wire cable (e.g. 'S12')
+   * position: setting of the 8-position test box switch, 1-8 (e.g. 6)
+   * channelIndex: oscilloscope/test box channel number, 1-4 (e.g. 3)
+  
+  Possible queries include, in addition to the direct access to the above
+  attributes:
+   * cable(), cableTag(), cableNo() (e.g. 'S12', 'S' and 12)
+   * channel: number of channel on the cable, 1-32 (e.g. 23)
+   * board(): number of the readout board in the minicrate for this channel
+   * slot(): number of the minicrate slot of the board reading the channel
+   * side(), sideName(): side of the board (e.g. ChannelInfo.RightSide, 'right')
+   * readoutChannel() channel within the chimney, 0-575 (e.g. 137)
+   * boardChannel()   channel on the readout board, 0-63 (e.g. 9)
+  """
+  
+  # NOTE: we support a state where the channel is not known (None)
   
   MaxChannels = 4
   MaxPositions = 8
   # it should be `MaxChannels`, but it's already taken:
-  TotalChannels = MaxChannels * MaxPositions
+  CableChannels = MaxChannels * MaxPositions
+  MaxSlots = 9 # number of slots in a readout minicrate
+  LeftSide, RightSide, MaxSides = range(3)
+  MaxCables = MaxSlots * MaxSides # number of cables in a readout minicrate
+  SideNames = { LeftSide: "left", RightSide: "right", None: "unknown", }
+  BoardChannels = CableChannels * MaxSides
+  ChimneyChannels = CableChannels * MaxCables
   
   def __init__(self,
    chimney=None, connection=None, channelIndex=None, position=None,
-   index=None,
-   testName="",
    channel=None
    ):
     assert \
       ((channel is None) != ((position is None) and (channelIndex is None)))
-    self.test         = testName
     self.chimney      = None
     self.connection   = connection
     self.position     = position
     self.channelIndex = channelIndex
     self.channel      = channel
-    self.index        = index
     self.setChimney(chimney)
     if self.channel is None: self.updateChannel()
     else:                    self.updatePositionAndChannelIndex()
@@ -528,10 +560,9 @@ class WaveformSourceInfo:
   # __init__()
   
   def copy(self):
-    return WaveformSourceInfo(
+    return ChannelInfo(
       chimney=self.chimney, connection=self.connection,
-      channelIndex=self.channelIndex, position=self.position,
-      index=self.index, testName=self.test,
+      channelIndex=self.channelIndex, position=self.position
       )
   # copy()
   
@@ -560,21 +591,17 @@ class WaveformSourceInfo:
   def setChannel(self, channel):
     self.channel = channel
     self.updatePositionAndChannelIndex()
-  def setIndex(self, index): self.index = index
-  def setFirstIndex(self, N = 10):
-    self.setIndex(self.firstIndexOf(self.position, N=N))
-  def increaseIndex(self, amount = 1): self.index += amount
   
   def updateChannel(self):
     self.channel = \
       None if self.position is None or self.channelIndex is None \
-      else (self.position - 1) * WaveformSourceInfo.MaxChannels + self.channelIndex
+      else (self.position - 1) * ChannelInfo.MaxChannels + self.channelIndex
   # updateChannel()
   def updatePositionAndChannelIndex(self):
     self.position = None if self.channel is None \
-      else WaveformSourceInfo.positionOfChannel(self.channel)
+      else ChannelInfo.positionOfChannel(self.channel)
     self.channelIndex = None if self.channel is None \
-      else WaveformSourceInfo.indexOfChannel(self.channel)
+      else ChannelInfo.indexOfChannel(self.channel)
   # updatePositionAndChannelIndex()
   def updateConnection(self):
     if (self.chimney is None) or (self.connection is None): return
@@ -582,15 +609,92 @@ class WaveformSourceInfo:
     self.connection = CableInfo.format_(cableTag, cableNo)
   # updateConnection()
   
-  @staticmethod
-  def firstIndexOf(position, N = 10): return (position - 1) * N + 1
+  def cable(self): return self.connection
+  def cableInfo(self):
+    return CableInfo.extract(self.connection, chimney=self.chimney)
+  def cableTag(self): return self.cableInfo()[0]
+  def cableNo(self): return self.cableInfo()[1]
+  
+  def board(self): return (self.cableNo() - 1) % ChannelInfo.MaxSlots
+  def slot(self): return self.board() + 1
+  def side(self):
+    cableNo = self.cableNo()
+    if cableNo is None: return None
+    if cableNo <= 0*ChannelInfo.MaxSlots: return None
+    if cableNo <= 1*ChannelInfo.MaxSlots: return ChannelInfo.LeftSide
+    if cableNo <= 2*ChannelInfo.MaxSlots: return ChannelInfo.RightSide
+    return None
+  # side()
+  def sideName(self): return ChannelInfo.SideNames[self.side()]
+
+  def boardChannel(self):
+    if self.channel is None: return None
+    return (ChannelInfo.CableChannels - self.channel) \
+     + (ChannelInfo.CableChannels if self.side() == ChannelInfo.LeftSide else 0)
+  # boardChannel()
+  def readoutChannel(self):
+    if self.channel is None: return None
+    return self.board() * ChannelInfo.BoardChannels + self.boardChannel()
+  # readoutChannel()
+  
+  AllFormatKeys = (
+    'chimney', 'cable', 'channel',
+    'channelIndex', 'position',
+    'cableNo', 'cableTag',
+    'slot', 'board', 'boardChannel', 'readoutChannel',
+  )
+  
+  def formatString(self, format_, keys = AllFormatKeys):
+    return format_.format(**(objectValues(self, keys)))
   
   @staticmethod
   def indexOfChannel(channel):
-    return ((channel - 1) % WaveformSourceInfo.MaxChannels) + 1
+    return ((channel - 1) % ChannelInfo.MaxChannels) + 1
   @staticmethod
   def positionOfChannel(channel):
-    return ((channel - 1) // WaveformSourceInfo.MaxChannels) + 1
+    return ((channel - 1) // ChannelInfo.MaxChannels) + 1
+  
+# class ChannelInfo
+
+
+class WaveformSourceInfo(ChannelInfo):
+  """A channel identifier with a test name and a waveform index added."""
+  def __init__(self,
+   chimney=None, connection=None, channelIndex=None, position=None,
+   index=None,
+   testName="",
+   channel=None,
+   ):
+    ChannelInfo.__init__(self, 
+     chimney=chimney, connection=connection,
+     channelIndex=channelIndex, position=position, channel=channel,
+     )
+    self.test         = testName
+    self.index        = index
+  # __init__()
+  
+  def copy(self):
+    return WaveformSourceInfo(
+      chimney=self.chimney, connection=self.connection,
+      channelIndex=self.channelIndex, position=self.position,
+      index=self.index, testName=self.test,
+      )
+  # copy()
+  
+  def setIndex(self, index): self.index = index
+  def setFirstIndex(self, N = 10):
+    self.setIndex(self.firstIndexOf(self.position, N=N))
+  def increaseIndex(self, amount = 1): self.index += amount
+  
+  AllFormatKeys = ChannelInfo.AllFormatKeys + ( 
+    'test', 'index',
+    )
+  
+  def formatString(self, format_, keys = AllFormatKeys):
+    return format_.format(**(objectValues(self, keys)))
+  
+  @staticmethod
+  def firstIndexOf(position, N = 10): return (position - 1) * N + 1
   
 # class WaveformSourceInfo
 
@@ -600,8 +704,8 @@ class WaveformSourceInfo:
 
 class WaveformSourceFilePath:
   
-  StandardDirectory = "CHIMNEY_%(chimney)s"
-  StandardPattern = "%(test)swaveform_CH%(channelIndex)d_CHIMNEY_%(chimney)s_CONN_%(connection)s_POS_%(position)d_%(index)d.csv"
+  StandardDirectory = "CHIMNEY_{chimney}"
+  StandardPattern = "{test}waveform_CH{channelIndex:d}_CHIMNEY_{chimney}_CONN_{cable}_POS_{position:d}_{index:d}.csv"
   
   def __init__(self,
    sourceInfo, filePattern = StandardPattern, sourceDir = ".",
@@ -629,9 +733,8 @@ class WaveformSourceFilePath:
   def setSourceInfo(self, sourceInfo): self.sourceInfo = sourceInfo
   
   def formatString(self, s):
-    info = vars(self).copy()
-    info.update(vars(self.sourceInfo))
-    return s % info
+    return s.format \
+      (**objectValues(self.sourceInfo, WaveformSourceInfo.AllFormatKeys))
   # formatString()
   
   def buildDir(self):
@@ -662,7 +765,10 @@ class WaveformSourceFilePath:
     files = []
     for i in xrange(N):
       values.increaseIndex()
-      files.append(os.path.join(self.sourceDir, self.sourceFilePattern % vars(values)))
+      files.append(
+        os.path.join(
+          self.sourceDir, values.formatString(self.sourceFilePattern)
+        ))
     # for i
     return files
   # allChannelSources()
@@ -670,7 +776,7 @@ class WaveformSourceFilePath:
   def allPositionSources(self, N = 10):
     """Returns the list of 4N expected waveform files for the current position."""
     files = []
-    for channelIndex in xrange(1, WaveformSourceInfo.MaxChannels + 1): files.extend(self.allChannelSources(channelIndex=channelIndex, N=N))
+    for channelIndex in xrange(1, ChannelInfo.MaxChannels + 1): files.extend(self.allChannelSources(channelIndex=channelIndex, N=N))
     return files
   # allPositionSources()
   
@@ -707,14 +813,14 @@ def parseWaveformSource(path):
       except IndexError:
         raise RuntimeError("Error parsing file name '%s': no chimney." % triggerFileName)
       iToken += 1
-      sourceFilePattern.extend([ Token, "%(chimney)s", ])
+      sourceFilePattern.extend([ Token, "{chimney}", ])
       continue
     elif TOKEN == 'CONN':
       try: sourceInfo.setConnection(tokens[iToken])
       except IndexError:
         raise RuntimeError("Error parsing file name '%s': no connection code." % triggerFileName)
       iToken += 1
-      sourceFilePattern.extend([ Token, "%(connection)s", ])
+      sourceFilePattern.extend([ Token, "{cable}", ])
       continue
     elif TOKEN == 'POS':
       try: sourceInfo.position = int(tokens[iToken])
@@ -722,7 +828,7 @@ def parseWaveformSource(path):
         raise RuntimeError("Error parsing file name '%s': no connection code." % triggerFileName)
       except ValueError:
         raise RuntimeError("Error parsing file name '%s': '%s' is not a valid position." % (triggerFileName, tokens[iToken]))
-      sourceFilePattern.extend([ Token, "%(position)s", ])
+      sourceFilePattern.extend([ Token, "{position:d}", ])
       iToken += 1
       continue
     elif TOKEN.endswith('WAVEFORM'):
@@ -735,13 +841,13 @@ def parseWaveformSource(path):
         raise RuntimeError("Error parsing file name '%s': no connection code." % triggerFileName)
       except ValueError:
         raise RuntimeError("Error parsing file name '%s': '%s' is not a valid channel number." % (triggerFileName, channel[2:]))
-      sourceFilePattern.extend([ Token, "CH%(channelIndex)d", ])
+      sourceFilePattern.extend([ Token, "CH{channelIndex:d}", ])
       iToken += 1
       continue
     else:
       try:
         sourceInfo.setIndex(int(Token))
-        sourceFilePattern.append('%(index)d')
+        sourceFilePattern.append('{index:d}')
       except ValueError:
         print >>sys.stderr, "Unexpected tag '%s' in file name '%s'" % (Token, triggerFileName)
         sourceFilePattern.append(Token)
@@ -782,6 +888,313 @@ def readWaveform(filePath):
   return columns
   
 # readWaveform() 
+
+
+################################################################################
+### Format conversions
+
+class ChannelConversions:
+  
+  class ChannelFormatError(RuntimeError): pass
+  
+  class ChannelConverter:
+    
+    Name = "ChannelConverter"
+    
+    @classmethod
+    def parse(cls, spec): raise NotImplementedError
+  
+    @staticmethod
+    def formatChannel(channelInfo): return "<invalid>"
+    
+  # class ChannelConverter
+  
+  class TestBoxChannel(ChannelConverter):
+    """The channel is specified in the connectivity test box format.
+    
+    The string specification is: '<chimney>:<cable>:<position>:<channel index>'
+    with:
+     * <chimney> the usual chimney specification, e.g. 'EW03'
+     * <cable> a 68-wire cable label (e.g. 'S12') or number (e.g. 12)
+     * <position> number 1-8 of the test box switch position (e.g. 6)
+     * <channel index> oscilloscope channel 1-4 (e.g. 3)
+    """
+    Name = "connectivity test box"
+    
+    @classmethod
+    def parse(cls, spec):
+      try:
+        chimney, connection, position, channelIndex = spec.split(':')
+      except ValueError:
+        raise ChannelConversions.ChannelFormatError(
+          "Channel specification '{}' not in {} format"
+          .format(spec, cls.__name__)
+          )
+      # if
+      
+      try: position = int(position)
+      except ValueError:
+        raise ChannelConversions.ChannelFormatError(
+          "Position '{}' not valid in '{}' channel specification"
+          .format(position, spec)
+          )
+      # try ... except
+      if position <= 0 or position > ChannelInfo.MaxPositions:
+        raise ChannelConversions.ChannelFormatError(
+          "Test box switch position {} not in range in '{}' channel specification"
+          .format(position, spec)
+          )
+      # try ... except
+      
+      if channelIndex.upper().startswith('CH'):
+        channelIndex = channelIndex[2:]
+      try: channelIndex = int(channelIndex)
+      except ValueError:
+        raise ChannelConversions.ChannelFormatError(
+          "Oscilloscope channel '{}' not valid in '{}' channel specification"
+          .format(channelIndex, spec)
+          )
+      # try ... except
+      if channelIndex <= 0 or channelIndex > ChannelInfo.MaxChannels:
+        raise ChannelConversions.ChannelFormatError(
+          "Oscilloscope channel {} not in range in '{}' channel specification"
+          .format(channelIndex, spec)
+          )
+      # try ... except
+      
+      if not ChimneyInfo.isChimney(chimney):
+        raise ChannelConversions.ChannelFormatError(
+          "Chimney '{}' in channel specification '{}' not valid"
+          .format(chimney, spec)
+          )
+      # if
+      
+      return ChannelInfo(
+        chimney=chimney, connection=connection,
+        position=position, channelIndex=channelIndex,
+        )
+      
+    # parse()
+    
+    @staticmethod
+    def formatChannel(channelInfo):
+      return channelInfo.formatString(
+        '{chimney}:{cable}:{position}:{channelIndex}',
+        ( 'chimney', 'cable', 'position', 'channelIndex', )
+        )
+    # formatChannel()
+    
+  # class TestBoxChannel
+  
+  
+  class ChimneyCableChannel(ChannelConverter):
+    """The channel is specified in the readout format of chimney and channel.
+    
+    The string specification is: '<chimney>:<cable>:<channel>' with:
+     * <chimney> the usual chimney specification, e.g. 'EW03'
+     * <cable> a 68-wire cable label (e.g. 'S12') or number (e.g. 12)
+     * <channel> number 1-32 of the channel within the cable (e.g. 23)
+    """
+    Name = "chimney/cable/channel"
+    
+    @classmethod
+    def parse(cls, spec):
+      try:
+        chimney, connection, channel = spec.split(':')
+      except ValueError:
+        raise ChannelConversions.ChannelFormatError(
+          "Channel specification '{}' not in {} format"
+          .format(spec, cls.__name__)
+          )
+      # if
+      
+      try: channel = int(channel)
+      except ValueError:
+        raise ChannelConversions.ChannelFormatError(
+          "Channel '{}' not valid in '{}' channel specification"
+          .format(channelIndex, spec)
+          )
+      # try ... except
+      if channel <= 0 or channel > ChannelInfo.CableChannels:
+        raise ChannelConversions.ChannelFormatError(
+          "Channel number {} not in range in '{}' channel specification"
+          .format(channel, spec)
+          )
+      # try ... except
+      
+      return \
+        ChannelInfo(chimney=chimney, connection=connection, channel=channel)
+      
+    # parse()
+    
+    @staticmethod
+    def formatChannel(channelInfo):
+      return channelInfo.formatString(
+        '{chimney}:{cable}:{channel}',
+        ( 'chimney', 'cable', 'channel', )
+        )
+    # formatChannel()
+    
+  # class ChimneyCableChannel
+  
+  StandardChannel = ChimneyCableChannel
+  
+  class ReadoutChimneyChannel(ChannelConverter):
+    """The channel is specified in the readout format of chimney and channel.
+    
+    The string specification is: '<channel>@<chimney>' with:
+     * <chimney> the usual chimney specification, e.g. 'EW03'
+     * <channel> a number 0-575 of the channel within the readout minicrate
+    """
+    Name = "chimney/readout channel"
+    
+    @classmethod
+    def parse(cls, spec):
+      """Format: '<channel>@<chimney>'."""
+      try:
+        channelSpec, chimneySpec = spec.split('@')
+      except TypeError:
+        raise ChannelConversions.ChannelFormatError(
+          "Channel specification '{}' not in {} format (<channel>@<chimney>)"
+          .format(spec, cls.__name__)
+          )
+      #
+      if not ChimneyInfo.isChimney(chimneySpec):
+        raise ChannelConversions.ChannelFormatError(
+          "Chimney '{}' in channel specification '{}' not valid"
+          .format(chimneySpec, spec)
+          )
+      # if
+      
+      try:
+        cchannel = int(channelSpec)
+      except ValueError:
+        raise ChannelConversions.ChannelFormatError(
+          "Channel '{}' in channel specification '{}' not an integral number"
+          .format(channelSpec, spec)
+          )
+      # try ... except
+
+      if cchannel < 0 or cchannel >= ChannelInfo.ChimneyChannels:
+        raise ChannelConversions.ChannelFormatError(
+          "Channel {} in channel specification '{}' not in the valid range"
+          .format(cchannel, spec)
+          )
+      # if
+      
+      chimneyInfo = ChimneyInfo.split(chimneySpec) # ( row, column, style )
+      if chimneyInfo[1] in [ 1, 20 ]:
+        raise NotImplementedError("Readout conversion for end chimneys not implemented yet")
+      # if
+      
+      board = cchannel // 64
+      boardChannel = cchannel % 64
+      cableNo = (board + 1) + (1 - boardChannel // 32) * 9
+      channel = 32 - boardChannel % 32
+      return ChannelInfo \
+        (chimney=chimneySpec, connection=str(cableNo), channel=channel)
+      
+    # parse()
+    
+    @staticmethod
+    def formatChannel(channelInfo):
+      return channelInfo.formatString \
+        ('{readoutChannel}@{chimney}', ( 'chimney', 'readoutChannel', ))
+    # formatChannel()
+    
+  # class ReadoutChimneyChannel
+  
+  
+  class InvalidChannelConverter(ChannelConverter):
+    
+    Name = "invalid"
+    
+    @classmethod
+    def parse(cls, spec):
+      raise RuntimeError \
+        ("Invalid format choice! (specification: '{}')".format(spec))
+    # parse()
+  
+  # class InvalidChannelConverter
+  
+  ValidFormats = ( TestBoxChannel, ChimneyCableChannel, ReadoutChimneyChannel, )
+  
+
+  @staticmethod
+  def formatMatcher(spec):
+    """
+    Returns the format converter and the parsed channel information in a tuple.
+    """
+    for class_ in ChannelConversions.ValidFormats:
+      if class_ is ChannelConversions.InvalidChannelConverter: continue
+      try: channelInfo = class_.parse(spec)
+      except ChannelConversions.ChannelFormatError: continue
+      return class_, channelInfo
+    else: return ChannelConversions.InvalidChannelConverter, None
+  # formatMatcher()
+  
+  
+  @staticmethod
+  def parse(spec, srcFormat = None):
+    """Returns the parsed channel information."""
+    if srcFormat is None:
+      _, channelInfo = ChannelConversions.formatMatcher(spec)
+      if channelInfo is None:
+        raise ChannelConversions.ChannelFormatError(
+          "Channel specification '{}' does not match any known format.".format(
+          spec
+          ))
+      # if
+    else:
+      srcFormat, _ = ChannelConversions.expandChannelFormat(srcFormat)
+      channelInfo = srcFormat.parse(spec)
+    return channelInfo
+  # parse()
+  
+  
+  @staticmethod
+  def findFormat(formatName):
+    for format_ in ChannelConversions.ValidFormats:
+      if format_.Name.lower() == formatName.lower(): return format_
+    else: return None
+  # findFormat()
+  
+  @staticmethod
+  def expandChannelFormat(format_):
+    if format_ is None:
+      return (
+        ChannelConversions.StandardChannel,
+        ChannelConversions.StandardChannel.Name,
+        )
+    # if 
+    try: isFormat = issubclass(format_, ChannelConversions.ChannelConverter)
+    except TypeError: isFormat = False
+    if isFormat:
+      formatName = format_.Name
+    else:
+      formatName = format_
+      format_ = ChannelConversions.findFormat(formatName)
+      if format_ is None:
+        raise RuntimeError \
+          ("Channel specification format '{}' invalid".format(formatName))
+      # if
+    # if ... else
+    return format_, formatName
+  # expandChannelFormat()
+  
+  
+  @staticmethod
+  def convertToFormat(toFormat, channelSpec, srcFormat = None):
+    if isinstance(channelSpec, ChannelInfo):
+      channelInfo = channelSpec
+    else:
+      channelInfo = ChannelConversions.parse(channelSpec, srcFormat=srcFormat)
+    #
+    toFormat, _ = ChannelConversions.expandChannelFormat(toFormat)
+    return toFormat.formatChannel(channelInfo)
+  # convertToFormat()
+  
+# class ChannelConversions
 
 
 ################################################################################
@@ -1366,8 +1779,8 @@ def plotWaveformFromFile(filePath, sourceInfo = None):
     .format(file=filePath, points= Renderer.graphPoints(graph))
     )
   if sourceInfo is None: sourceInfo = parseWaveformSource(filePath).sourceInfo
-  graphName = sourceInfo.formatString("GWaves_Chimney%(chimney)s_Conn%(connection)s_Ch%(channel)d_I%(index)d")
-  graphTitle = sourceInfo.formatString("Chimney %(chimney)s connection %(connection)s channel %(channel)d (%(index)d)")
+  graphName = sourceInfo.formatString("GWaves_Chimney{chimney}_Conn{cable}_Ch{channel:d}_I{index:d}")
+  graphTitle = sourceInfo.formatString("Chimney {chimney} connection {cable} channel {channel:d} ({index:d})")
   Renderer.setObjectNameTitle(graph, graphName, graphTitle)
   return graph, X, Y
   
@@ -1418,9 +1831,9 @@ def plotSingleChannel(sourceSpecs, options = {}):
       ('graphColor', baseColors[channelSourceInfo.channelIndex % len(baseColors)])
     
     graphName = channelSourceInfo.formatString \
-      ("MG_%(chimney)s_%(connection)s_Ch%(channel)d")
+      ("MG_{chimney}_{cable}_Ch{channel:d}")
     graphTitle = channelSourceInfo.formatString \
-      ("Chimney %(chimney)s connection %(connection)s channel %(channel)s")
+      ("Chimney {chimney} connection {cable} channel {channel:d}")
     mgraph = Renderer.makeMultiplot(name=graphName, title=graphTitle)
     
     #
@@ -1438,8 +1851,7 @@ def plotSingleChannel(sourceSpecs, options = {}):
     for sourcePath in sourcePaths:
       with timers.setdefault('graph', description="graph creation"):
         graph, X, Y = plotWaveformFromFile(sourcePath, sourceInfo=channelSourceInfo)
-        if not graph: continue
-        Renderer.addPlotToMultiplot(graph, mgraph, baseColor)
+        if graph: Renderer.addPlotToMultiplot(graph, mgraph, baseColor)
       # with graph timer
       
       with timers.setdefault('stats', description="statistics extraction"):
@@ -1532,7 +1944,7 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
     # prepare a canvas to draw in, and split it
     if canvasName is None:
       canvasName = sourceInfo.formatString \
-        ("C%(test)sWaves_Chimney%(chimney)s_Conn%(connection)s_Pos%(position)d")
+        ("C{test}Waves_Chimney{chimney}_Conn{cable}s_Pos{position:d}")
     # if
     canvas = Renderer.makeWaveformCanvas \
       (canvasName, sourceInfo.MaxChannels, canvas=canvas, options=options)
@@ -1562,7 +1974,7 @@ def plotAllPositionWaveforms(sourceSpecs, canvasName = None, canvas = None, opti
       canvas,
       title=(
         sourceInfo.formatString
-          ("%(test)s waveforms from chimney %(chimney)s, connection %(connection)s")
+          ("{test} waveforms from chimney {chimney}, connection {cable}")
         + ", channels %d-%d" % (channelRange.min(), channelRange.max())
       )
       )
@@ -1589,7 +2001,7 @@ def plotSelectedChannelWaveforms(sourceSpecs, channels, canvasName = None, canva
       try: channelsStr = channels.toString(fmt='02d')
       except AttributeError: channelsStr = str(channels)
       canvasName = sourceInfo.formatString \
-       ("C%(test)sWaves_Chimney%(chimney)s_Conn%(connection)s_Channels" + channelsStr)
+       ("C{test}Waves_Chimney{chimney}_Conn{cable}_Channels" + channelsStr)
     # if
     
     canvas = Renderer.makeWaveformCanvas \
@@ -1620,7 +2032,7 @@ def plotSelectedChannelWaveforms(sourceSpecs, channels, canvasName = None, canva
       canvas,
       title=(
         sourceInfo.formatString
-          ("%(test)s waveforms from chimney %(chimney)s, connection %(connection)s")
+          ("{test} waveforms from chimney {chimney}, connection {cable}")
         + ", channels {}".format(channels)
       )
       )
@@ -1733,6 +2145,11 @@ def waveformDrawer(argv):
   parser.set_defaults(printFiles=None)
   parser.add_argument \
     ('--filename', '-f', type=str, help='one of the files with the waveform')
+  parser.add_argument(
+    '--inputchannel', '-I', type=str,
+    help='single-string specification of the channel'
+      ' (e.g. "EW03:S15:12" or "340@EW03")',
+    )
   parser.add_argument \
     ('--chimney', '-C', type=str, help='chimney of the data to print')
   parser.add_argument(
@@ -1818,6 +2235,29 @@ def waveformDrawer(argv):
       logging.error("File name specified: channel argument IGNORED.")
     if args.test:
       logging.error("File name specified: test argument IGNORED.")
+  elif args.inputchannel:
+    if args.chimney:
+      logging.error("File name specified: chimney argument IGNORED.")
+    if args.connection:
+      logging.error("File name specified: connection argument IGNORED.")
+    if args.position:
+      logging.error("File name specified: position argument IGNORED.")
+    
+    channelInfo = ChannelConversions.parse(args.inputchannel)
+    args.chimney = channelInfo.chimney
+    args.connection = channelInfo.cable()
+    args.position = channelInfo.position
+    args.scopechannel = channelInfo.channelIndex
+    if args.allchannels:
+      if args.channels is not None:
+        raise RuntimeError \
+          ("Options `--channels` and `--allchannels` are mutually exclusive.")
+      args.channels = '{}-{}'.format(1, ChannelInfo.CableChannels)
+    # if all channels
+    if args.channels:
+      args.channels = SelectedRange(args.channels)
+    
+    
   else:
     if args.chimney is None:
       raise RuntimeError \
@@ -1833,7 +2273,7 @@ def waveformDrawer(argv):
       if args.channels is not None:
         raise RuntimeError \
           ("Options `--channels` and `--allchannels` are mutually exclusive.")
-      args.channels = '{}-{}'.format(1, WaveformSourceInfo.TotalChannels)
+      args.channels = '{}-{}'.format(1, ChannelInfo.CableChannels)
     # if all channels
         
     if args.channels is None:
@@ -1941,7 +2381,7 @@ def chimneyConverter(argv):
     (description='Converts chimney names across different conventions.')
   parser.add_argument(
     'chimneys', metavar='chimney', type=str, nargs="*",
-    help="chimney identificators to be converted (read from input if none)"
+    help="chimney identifiers to be converted (read from input if none)"
     )
   parser.add_argument(
     '--output', '-o', type=str, default=ChimneyInfo.StandardStyle.Name,
@@ -1955,7 +2395,7 @@ def chimneyConverter(argv):
     )
   parser.add_argument(
     '--stdin', '-I', action="store_true",
-    help="reads chimney identificators from input"
+    help="reads chimney identifiers from input"
     )
   parser.add_argument(
     '--verbose', '-v', action="store_true",
@@ -1988,6 +2428,63 @@ def chimneyConverter(argv):
   
   return 0
 # chimneyConverter()
+
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+def channelConverter(argv):
+  import argparse
+  
+  parser = argparse.ArgumentParser \
+    (description='Converts channel identitiers across different conventions.')
+  parser.add_argument(
+    'channelSpecs', type=str, nargs="*",
+    help="channel identifiers to be converted (read from input if none)"
+    )
+  parser.add_argument(
+    '--output', '-o', type=str, default=ChannelConversions.StandardChannel.Name,
+    choices=[ cls.Name for cls in ChannelConversions.ValidFormats ],
+    help="select the output style [%(default)s]"
+    )
+  parser.add_argument(
+    '--input', '-i', type=str,
+    choices=[ cls.Name for cls in ChannelConversions.ValidFormats ],
+    help="select the input style (default: autodetect)"
+    )
+  parser.add_argument(
+    '--stdin', '-I', action="store_true",
+    help="reads channel identifiers from input"
+    )
+  parser.add_argument(
+    '--verbose', '-v', action="store_true",
+    help="output in the form `INPUT CHANNEL -> OUTPUT CHANNEL`"
+    )
+  
+  args = parser.parse_args(args=argv[1:])
+  
+  if args.stdin and args.channelSpecs:
+    raise RuntimeError(
+      "Reading channels from standard input would ignore the ones on command line."
+      )
+  if args.stdin or not args.channelSpecs:
+    channelSpecs = sys.stdin
+  else:
+    channelSpecs = args.channelSpecs
+  # if stdin
+  
+  for specs in channelSpecs:
+    for inputChannel in specs.split():
+      inputChannel = inputChannel.strip()
+      outputChannel = ChannelConversions.convertToFormat \
+        (args.output, inputChannel, srcFormat=args.input)
+      if args.verbose:
+        print "{} -> {}".format(inputChannel, outputChannel)
+      else:
+        print outputChannel
+    # for words
+  # for
+  
+  return 0
+# channelConverter()
 
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -2079,6 +2576,7 @@ if __name__ == "__main__":
   
   mainPrograms = {
     'convertchimney': chimneyConverter,
+    'convertchannel': channelConverter,
     'convertfileformat': fileFormatConverter,
     None: waveformDrawer, # default
   }
