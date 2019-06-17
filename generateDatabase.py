@@ -405,6 +405,7 @@ if __name__ == "__main__":
     treename="ConnectivityAna",
     outputFormat="excel",
     outputFileMode=OutputFileModes.NewFile,
+    progress=None,
     )
   
   
@@ -413,6 +414,8 @@ if __name__ == "__main__":
   
   Parser.add_argument("--debug", "-d", action="count",
     help="enables debugging messages")
+  Parser.add_argument("--progress", metavar="N", type=int,
+    help="print a message on screen every N entries")
   
   argGroup = Parser.add_argument_group(title="Input options")
   argGroup.add_argument("--treepath", "-p", default="",
@@ -434,44 +437,6 @@ if __name__ == "__main__":
   argGroup.add_argument("--mode", "-O", dest="outputFileMode",
     choices=OutputFileModes.modes(),
     help="output file mode [%(default)s]")
-  
-  """
-  argGroup = Parser.add_argument_group(title="Numerical output format")
-  argGroup.add_argument("--integer", "-d", "-i", action="store_false",
-    dest="bFloat", help="sets the sum of integral numbers")
-  argGroup.add_argument("--real", "--float", "-e", "-f", "-g", 
-    action="store_true", dest="bFloat", help="sets the sum of real numbers")
-  argGroup.add_argument("--enable-commands", "-C", action="store_true",
-    dest="bCommands", help="enables special commands (see help)")
-  argGroup.add_argument("--radix", type=int, dest="Radix", default=0,
-    help="radix of integer numbers (0: autodetect) [%(default)d]")
-  
-  argGroup = Parser.add_argument_group(title="Output arrangement")
-  
-  columnOptions = argGroup.add_mutually_exclusive_group()
-  columnOptions.add_argument("--columns", "-c", 
-    action="append", dest="Columns", default=[],
-    help="sets column mode and the columns to be included, comma separated"
-      " (first is 1)")
-  columnOptions.add_argument("--allcolumns",
-    action="store_true", dest="AllColumns", default=False,
-    help="sets column mode and uses all available columns")
-  
-  argGroup.add_argument("--colnumber", "-l", 
-    action="store_true", dest="ColNumber",
-    help="writes the column number in the output [default: only when needed]")
-  argGroup.add_argument("--nocolnumber", "-L",
-    action="store_false", dest="ColNumber",
-    help="omits the column number in the output [default: only when needed]")
-  
-  argGroup = Parser.add_argument_group(title="Statistics output")
-  argGroup.add_argument("--average", "-a",
-    dest="Print", action="append_const", const="average",
-    help="prints the average of the input")
-  argGroup.add_argument("--sum", "-s",
-    dest="Print", action="append_const", const="sum",
-    help="prints the sum of the input")
-    """
   
   Parser.add_argument('--version', action="version",
     version="%(prog)s version {}".format(__version__)
@@ -580,10 +545,11 @@ if __name__ == "__main__":
   
   if not args.noheader: CSVwriter.writeheader()
   
-  
+  progress = args.progress
   for iEntry, channelResults in enumerate(SrcTree):
     channelFields = extractData(channelResults)
-    if iEntry % 5000 == 0:
+    if progress and iEntry % progress == 0:
+      logging.info("%d...", iEntry)
       logging.debug("[#%*d] %s", paddingFor(nEntries-1), iEntry, channelFields)
     CSVwriter.writerow(channelFields)
   # for
