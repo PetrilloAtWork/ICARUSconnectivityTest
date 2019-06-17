@@ -401,12 +401,16 @@ class CableInfo:
   
   @staticmethod
   def parse(cable):
-    match = CableInfo.Pattern.match(cable.upper())
-    if match is None:
-      raise RuntimeError("'{}' is not a valid cable identifier.")
-    
-    cableNumber = match.group(2).lstrip('0')
-    cableTag = match.group(1)
+    if isinstance(cable, str):
+      match = CableInfo.Pattern.match(cable.upper())
+      if match is None:
+        raise RuntimeError("'{}' is not a valid cable identifier.")
+      
+      cableNumber = match.group(2).lstrip('0')
+      cableTag = match.group(1)
+    else:
+      cableNumber = cable
+      cableTag = ''
     return cableTag, int(cableNumber)
   # parse()
   
@@ -455,6 +459,45 @@ class CableInfo:
 # class CableInfo
 
 
+class ChimneyID:
+  def __init__(self,
+   chimney = None, col = None, cryostat = None, TPC = None, row = None
+   ):
+    """
+    E.g. for "EW06", chimney='EW06', col='EW', cryostat='E', TPC='W', row=6.
+    """
+    if chimney is not None:
+      assert col is None and cryostat is None and TPC is None and row is None
+      col, row \
+        = ChimneyInfo.convertToStyleAndSplit(ChimneyInfo.GeographicStyle, chimney)
+      chimney = None
+    # if chimney
+    if col is not None:
+      assert cryostat is None and TPC is None
+      ( cryostat, TPC, ) = col
+    # if
+    assert row is not None
+    row = int(row)
+    assert cryostat in ( 'E', 'W', )
+    assert TPC in ( 'E', 'W', )
+    
+    self.cryostat = cryostat
+    self.TPC = TPC
+    self.number = row
+  # __init__()
+  
+  def toString(self, style = ChimneyInfo.StandardStyle):
+    return ChimneyInfo.convertToStyle \
+      (style, str(self), srcStyle=ChimneyInfo.StandardStyle)
+  # toString()
+  
+  def __str__(self):
+    return ChimneyInfo.StandardStyle.format_ \
+     (self.cryostat + self.TPC, self.number)
+  # __str__()
+  
+# class ChimneyID
+
 
 class WaveformSourceInfo:
   
@@ -467,14 +510,20 @@ class WaveformSourceInfo:
    chimney=None, connection=None, channelIndex=None, position=None,
    index=None,
    testName="",
+   channel=None
    ):
+    assert \
+      ((channel is None) != ((position is None) and (channelIndex is None)))
     self.test         = testName
-    self.chimney      = chimney
+    self.chimney      = None
     self.connection   = connection
     self.position     = position
     self.channelIndex = channelIndex
+    self.channel      = channel
     self.index        = index
-    self.updateChannel()
+    self.setChimney(chimney)
+    if self.channel is None: self.updateChannel()
+    else:                    self.updatePositionAndChannelIndex()
     self.updateConnection()
   # __init__()
   
@@ -488,8 +537,16 @@ class WaveformSourceInfo:
   
   def formatString(self, s): return s % vars(self)
   
+  def cryostat(self): return self.chimneyID.cryostat
+  def TPC(self): return self.chimneyID.TPC
+  
   def setChimney(self, chimney):
-    self.chimney = chimney
+    if isinstance(chimney, ChimneyID):
+      self.chimneyID = chimney
+      self.chimney = str(self.chimneyID)
+    else:
+      self.chimney = chimney
+      self.chimneyID = ChimneyID(self.chimney)
     self.updateConnection()
   def setConnection(self, connection):
     self.connection = connection
@@ -576,6 +633,9 @@ class WaveformSourceFilePath:
     info.update(vars(self.sourceInfo))
     return s % info
   # formatString()
+  
+  def buildDir(self):
+    return self.formatString(self.sourceDir)
   
   def buildPath(self):
     return os.path.join(self.sourceDir, self.formatString(self.sourceFilePattern))
@@ -1431,12 +1491,12 @@ def plotSingleChannel(sourceSpecs, options = {}):
   if options.get('printStats', False):
     sys.stderr.write('\n')
     baseline = baselineStats.average()
-    print indentText("""Statistics on {channelDesc}:
-      waveforms:  {nWaveforms}
-      baseline:   {baseline:.4g} +/- {baselineError:.4g}  (RMS: {baselineRMS:.4g})
-      peak:       {peak:.4g} +/- {peakError:.4g}
-      range:      {minVsBaseline:.4g} -- {maxVsBaseline:.4g}
-    """.format(
+    print indentText("{channelDesc}"
+     ": waveforms: {nWaveforms}"
+     "; baseline: {baseline:.4g} +/- {baselineError:.4g} (RMS: {baselineRMS:.4g})"
+     "; peak: {peak:.4g} +/- {peakError:.4g}"
+     "; range: {minVsBaseline:.4g} -- {maxVsBaseline:.4g}"
+     .format(
       channelDesc=graphTitle,
       nWaveforms=nWaveforms,
       baseline=baseline,
@@ -1714,6 +1774,10 @@ def waveformDrawer(argv):
   parser.add_argument('--render', '-R', type=str,
     choices=[ 'ROOT', 'matplotlib', 'none', ], default='ROOT',
     help='render system to be used [%(default)s]',
+    )
+  parser.add_argument('--norender', dest='render',
+    action="store_const", const='none',
+    help='do not draw plots (equivalent to `--render=none`)',
     )
   parser.add_argument(
     '--windowname', type=str,
